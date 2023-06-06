@@ -83,6 +83,7 @@ enum {
 
 extern const char *selinux_policycap_names[__POLICYDB_CAPABILITY_MAX];
 
+extern int selinux_android_netlink_route;
 /*
  * type_datum properties
  * available at the kernel policy version >= POLICYDB_VERSION_BOUNDARY
@@ -394,6 +395,7 @@ extern struct vfsmount *selinuxfs_mount;
 extern void selnl_notify_setenforce(int val);
 extern void selnl_notify_policyload(u32 seqno);
 extern int selinux_nlmsg_lookup(u16 sclass, u16 nlmsg_type, u32 *perm);
+extern void selinux_nlmsg_init(void);
 
 extern void avtab_cache_init(void);
 extern void ebitmap_cache_init(void);

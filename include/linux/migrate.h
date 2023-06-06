@@ -48,7 +48,9 @@ static inline struct page *new_page_nodemask(struct page *page,
 		gfp_mask |= GFP_TRANSHUGE;
 	}
 
+#ifndef CONFIG_CMA_RTK_ALLOCATOR
 	if (PageHighMem(page) || (zone_idx(page_zone(page)) == ZONE_MOVABLE))
+#endif
 		gfp_mask |= __GFP_HIGHMEM;
 
 	new_page = __alloc_pages_nodemask(gfp_mask, order,

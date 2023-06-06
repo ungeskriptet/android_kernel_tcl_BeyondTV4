@@ -17,6 +17,11 @@
 #include <linux/slab.h>
 #include <linux/tick.h>
 #include <linux/sched/cpufreq.h>
+#include <linux/fs.h>
+#include <linux/string.h>
+#include <linux/mm.h>
+#include <linux/syscalls.h>
+#include <asm/unistd.h>
 
 #include "cpufreq_ondemand.h"
 
@@ -32,6 +37,10 @@
 static struct od_ops od_ops;
 
 static unsigned int default_powersave_bias;
+#define LOGGING_LOAD_MAX 1024
+static unsigned char load_history[LOGGING_LOAD_MAX]; //saving history load 
+static unsigned int  load_freq[LOGGING_LOAD_MAX];
+static unsigned int  load_cnt=0;
 
 /*
  * Not all CPUs want IO time to be accounted as busy; this depends on how
@@ -129,6 +138,11 @@ static void dbs_freq_increase(struct cpufreq_policy *policy, unsigned int freq)
 			CPUFREQ_RELATION_L : CPUFREQ_RELATION_H);
 }
 
+
+#ifdef CONFIG_ARCH_RTK285O
+static int total_count=0;
+static int max_freq_count=0;
+#endif
 /*
  * Every sampling_rate, we check, if current idle time is less than 20%
  * (default), then we try to increase frequency. Else, we adjust the frequency
@@ -144,19 +158,55 @@ static void od_update(struct cpufreq_policy *policy)
 
 	dbs_info->freq_lo = 0;
 
+#ifdef CONFIG_ARCH_RTK285O
+	if(total_count%100==0)
+	{
+		unsigned long js = jiffies;
+		pr_debug("time %lu total_count:%d max_count:%d\n",js,total_count,max_freq_count);
+		max_freq_count=0;
+		total_count=0;
+	}
+#endif
 	/* Check for frequency increase */
+#ifdef CONFIG_ARCH_RTK285O
+	if ((load > dbs_data->up_threshold) && (max_freq_count<5)) {
+#else
 	if (load > dbs_data->up_threshold) {
+#endif
 		/* If switching to max speed, apply sampling_down_factor */
 		if (policy->cur < policy->max)
 			policy_dbs->rate_mult = dbs_data->sampling_down_factor;
 		dbs_freq_increase(policy, policy->max);
+		if(load_cnt>=LOGGING_LOAD_MAX)
+			load_cnt=0;
+
+		load_history[load_cnt]=load;
+		load_freq[load_cnt]=policy->cur;
+		load_cnt++;
+
+#ifdef CONFIG_ARCH_RTK285O
+		max_freq_count++;
+#endif
 	} else {
 		/* Calculate the next frequency proportional to load */
 		unsigned int freq_next, min_f, max_f;
 
 		min_f = policy->cpuinfo.min_freq;
 		max_f = policy->cpuinfo.max_freq;
-		freq_next = min_f + load * (max_f - min_f) / 100;
+	
+		if(load_cnt>=LOGGING_LOAD_MAX)
+			load_cnt=0;
+		load_history[load_cnt]=load;
+
+#ifdef CONFIG_ARCH_RTK285O
+		if(max_freq_count>=5)
+			freq_next=min_f;
+
+		else	
+#endif
+			freq_next = min_f + load * (max_f - min_f) / 100;
+//		load=0; //force to 900MHz  in Mac6p
+
 
 		/* No longer fully busy, reset rate_mult */
 		policy_dbs->rate_mult = 1;
@@ -167,8 +217,95 @@ static void od_update(struct cpufreq_policy *policy)
 								 CPUFREQ_RELATION_L);
 
 		__cpufreq_driver_target(policy, freq_next, CPUFREQ_RELATION_C);
+
+
+		load_freq[load_cnt]=policy->cur;
+#ifdef CONFIG_ARCH_RTK285O
+		if(policy->cur==max_f)
+			max_freq_count++;
+#endif
+		load_cnt++;
 	}
+#ifdef CONFIG_ARCH_RTK285O
+	total_count++;
+#endif
 }
+
+#ifdef CONFIG_ARCH_RTK285O
+void rtk_reset_ondemand_count(void)
+{
+	total_count=max_freq_count=0;
+}
+#endif
+
+void rtk_printk_cpufreq_load(void)
+{
+	int i;
+
+	char data[120];
+	struct file *cpu_load_log_file = NULL;      
+	mm_segment_t old_fs;
+	char *load_data = kmalloc(sizeof(load_history), GFP_KERNEL);
+	char *freq_data ;
+
+        if (!load_data)
+	{
+		pr_alert("allocated load_data failed\n");
+                return;
+	}
+	freq_data= kmalloc(sizeof(load_freq),GFP_KERNEL);
+
+        if (!freq_data) {
+		kfree(load_data);
+		pr_alert("allocated freq_data failed\n");
+                return ;
+	}
+
+	memcpy(freq_data,load_freq,sizeof(load_freq));
+	memcpy(load_data,load_history,sizeof(load_history));
+
+	loff_t pos = 0;	
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	cpu_load_log_file = filp_open("/tmp/rtk_cpu_load.log", O_CREAT | O_RDWR | O_TRUNC, 0600);
+
+	if(!IS_ERR(cpu_load_log_file))
+	{
+		int write_size=0;
+		for(i=0;i<LOGGING_LOAD_MAX;i++) {
+			if(freq_data[i]!=0) 
+			{
+			//	pr_alert("load:%d freq:%dMHz \n",load_data[i],freq_data[i]/1000);
+				sprintf(data,"load:%d freq:%dMHz \n",load_history[i],load_freq[i]/1000);
+		//		pr_alert("%s %d",data, strlen(data));
+				vfs_write(cpu_load_log_file, data, strlen(data),&pos);
+				write_size+=pos;
+			}
+		}
+		set_fs(old_fs);
+		filp_close(cpu_load_log_file,NULL);
+		pr_alert("write done:%d\n",write_size);	    
+	}
+	else
+	{
+		pr_alert("open failed, please check selinux permission\n");
+	}	
+
+	if(load_data)
+		kfree(load_data);
+	if(freq_data)
+		kfree(freq_data);
+
+#if 0
+	for(i=0;i<LOGGING_LOAD_MAX;i++) {
+		if(load_freq[i]!=0) 
+		{
+			pr_alert("load:%d freq:%dMHz \n",load_history[i],load_freq[i]/1000);
+		}
+	}
+#endif
+}
+
 
 static unsigned int od_dbs_update(struct cpufreq_policy *policy)
 {
@@ -394,6 +531,9 @@ static void od_start(struct cpufreq_policy *policy)
 
 	dbs_info->sample_type = OD_NORMAL_SAMPLE;
 	ondemand_powersave_bias_init(policy);
+#ifdef CONFIG_ARCH_RTK285O
+	rtk_reset_ondemand_count();
+#endif
 }
 
 static struct od_ops od_ops = {

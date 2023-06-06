@@ -52,7 +52,6 @@
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/processor.h>
-#include <asm/scs.h>
 #include <asm/smp_plat.h>
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -347,9 +346,6 @@ void cpu_die(void)
 {
 	unsigned int cpu = smp_processor_id();
 
-	/* Save the shadow stack pointer before exiting the idle task */
-	scs_save(current);
-
 	idle_task_exit();
 
 	local_irq_disable();
@@ -415,6 +411,11 @@ void __init smp_cpus_done(unsigned int max_cpus)
 void __init smp_prepare_boot_cpu(void)
 {
 	set_my_cpu_offset(per_cpu_offset(smp_processor_id()));
+	/*
+	 * Initialise the static keys early as they may be enabled by the
+	 * cpufeature code.
+	 */
+	jump_label_init();
 	cpuinfo_store_boot_cpu();
 }
 
@@ -832,6 +833,9 @@ static void ipi_cpu_crash_stop(unsigned int cpu, struct pt_regs *regs)
  */
 void handle_IPI(int ipinr, struct pt_regs *regs)
 {
+#ifdef CONFIG_REALTEK_SCHED_LOG
+        extern spinlock_t sched_log_lock;
+#endif
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
 
@@ -841,22 +845,80 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	}
 
 	switch (ipinr) {
+        case IPI_WAKEUP:
+//		printk("ipi_wakeup:%d\n",cpu);
+        #ifdef CONFIG_REALTEK_SCHED_LOG
+                if (sched_log_flag & 0x1) {
+                        spin_lock(&sched_log_lock);
+                        log_intr_enter(cpu, ipinr);
+                        spin_unlock(&sched_log_lock);
+                }
+                if (sched_log_flag & 0x1) {
+                        spin_lock(&sched_log_lock);
+                        log_intr_exit(cpu, ipinr);
+                        spin_unlock(&sched_log_lock);
+                }
+        #endif // CONFIG_REALTEK_SCHED_LOG
+
+                break;
+
 	case IPI_RESCHEDULE:
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		scheduler_ipi();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		break;
 
 	case IPI_CALL_FUNC:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		generic_smp_call_function_interrupt();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 
 	case IPI_CPU_STOP:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		ipi_cpu_stop(cpu);
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
-
 	case IPI_CPU_CRASH_STOP:
 		if (IS_ENABLED(CONFIG_KEXEC_CORE)) {
 			irq_enter();
@@ -864,11 +926,24 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 			unreachable();
 		}
-		break;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
 	case IPI_TIMER:
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		tick_receive_broadcast();
 		irq_exit();
 		break;
@@ -877,7 +952,21 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 #ifdef CONFIG_IRQ_WORK
 	case IPI_IRQ_WORK:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_work_run();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 #endif

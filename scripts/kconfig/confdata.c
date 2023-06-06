@@ -831,7 +831,9 @@ next:
 			return 1;
 	}
 
+#if 0
 	conf_message(_("configuration written to %s"), newname);
+#endif
 
 	sym_set_change_count(0);
 

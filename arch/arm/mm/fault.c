@@ -64,7 +64,7 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 	if (!mm)
 		mm = &init_mm;
 
-	pr_alert("pgd = %p\n", mm->pgd);
+	pr_alert("addr:%lx  pgd = %p\n", addr, mm->pgd);
 	pgd = pgd_offset(mm, addr);
 	pr_alert("[%08lx] *pgd=%08llx",
 			addr, (long long)pgd_val(*pgd));
@@ -139,6 +139,8 @@ __do_kernel_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 	if (fixup_exception(regs))
 		return;
 
+        //console_verbose();
+        console_loglevel = 9;
 	/*
 	 * No handler, we'll have to terminate things with extreme prejudice.
 	 */
@@ -168,14 +170,30 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 		harden_branch_predictor();
 
 #ifdef CONFIG_DEBUG_USER
+	void dump_regs_refs(const char *lvl, struct pt_regs *regs);
+	void show_maps(struct mm_struct *mm);
+        int saved_console_loglevel = console_loglevel;
+
+        //console_verbose();
+        console_loglevel = 9;
+        
 	if (((user_debug & UDBG_SEGV) && (sig == SIGSEGV)) ||
 	    ((user_debug & UDBG_BUS)  && (sig == SIGBUS))) {
-		printk(KERN_DEBUG "%s: unhandled page fault (%d) at 0x%08lx, code 0x%03x\n",
+		printk(KERN_EMERG "%s: unhandled page fault (%d) at 0x%08lx, code 0x%03x\n",
 		       tsk->comm, sig, addr, fsr);
+		printk(KERN_EMERG "( pc : [<%08lx>] lr : [<%08lx>] )\n", regs->ARM_pc, regs->ARM_lr);
 		show_pte(tsk->mm, addr);
 		show_regs(regs);
+		//dump_regs_refs(KERN_EMERG, regs);
+		if (tsk && tsk->mm)
+			show_maps(tsk->mm);
 	}
+        console_loglevel = saved_console_loglevel;
 #endif
+#if defined(PANIC_AT_USER_FAULT)
+	/* fixme, just to force stop */
+	panic("user fault");
+#endif //#if defined(PANIC_AT_USER_FAULT)
 
 	tsk->thread.address = addr;
 	tsk->thread.error_code = fsr;
@@ -545,6 +563,8 @@ hook_fault_code(int nr, int (*fn)(unsigned long, unsigned int, struct pt_regs *)
 	fsr_info[nr].name = name;
 }
 
+extern void DDR_scan_set_error(int cpu);
+
 /*
  * Dispatch a data abort to the relevant handler.
  */
@@ -556,6 +576,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 
 	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs))
 		return;
+
+	DDR_scan_set_error(0);
 
 	pr_alert("Unhandled fault: %s (0x%03x) at 0x%08lx\n",
 		inf->name, fsr, addr);
@@ -589,6 +611,8 @@ do_PrefetchAbort(unsigned long addr, unsigned int ifsr, struct pt_regs *regs)
 
 	if (!inf->fn(addr, ifsr | FSR_LNX_PF, regs))
 		return;
+
+	DDR_scan_set_error(0);
 
 	pr_alert("Unhandled prefetch abort: %s (0x%03x) at 0x%08lx\n",
 		inf->name, ifsr, addr);

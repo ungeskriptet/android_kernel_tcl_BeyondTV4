@@ -101,6 +101,7 @@
 #include <linux/ctype.h>
 #include <linux/math64.h>
 #include <linux/slab.h>
+#include <linux/suspend.h>
 #include "check.h"
 #include "efi.h"
 
@@ -670,6 +671,11 @@ static int find_valid_gpt(struct parsed_partitions *state, gpt_header **gpt,
         return 0;
 }
 
+#ifdef CONFIG_ENABLE_WOV_SUPPORT
+u32 wov_start_block;
+u32 wov_size_block;
+#endif
+
 /**
  * efi_partition(struct parsed_partitions *state)
  * @state: disk parsed partitions
@@ -735,6 +741,13 @@ int efi_partition(struct parsed_partitions *state)
 			info->volname[label_count] = c;
 			label_count++;
 		}
+#ifdef CONFIG_ENABLE_WOV_SUPPORT
+		if(memcmp(info->volname,"wov",3)==0){
+			wov_start_block=start;
+			wov_size_block=(int)size;
+			printk("wov start=%x,size=%d\n",wov_start_block,wov_size_block);
+		}
+#endif
 		state->parts[i + 1].has_info = true;
 	}
 	kfree(ptes);

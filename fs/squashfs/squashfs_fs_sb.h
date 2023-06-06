@@ -77,5 +77,9 @@ struct squashfs_sb_info {
 	unsigned int				inodes;
 	unsigned int				fragments;
 	int					xattr_ids;
+#ifdef CONFIG_SQUASHFS_TV043
+        uid_t					uid;
+        gid_t					gid;
+#endif
 };
 #endif

@@ -176,6 +176,8 @@ static struct dentry *zs_stat_root;
 static struct vfsmount *zsmalloc_mnt;
 #endif
 
+static bool zs_alloc_zone_zram;
+
 /*
  * We assign a page to ZS_ALMOST_EMPTY fullness group when:
  *	n <= N / f, where
@@ -208,6 +210,10 @@ struct size_class {
 	unsigned int index;
 	struct zs_size_stat stats;
 };
+
+#ifdef CONFIG_ZONE_ZRAM
+extern unsigned long get_zone_zram_size(void);
+#endif
 
 /* huge object: pages_per_zspage == 1 && maxobj_per_zspage == 1 */
 static void SetPageHugeObject(struct page *page)
@@ -1115,6 +1121,11 @@ static struct zspage *alloc_zspage(struct zs_pool *pool,
 	int i;
 	struct page *pages[ZS_MAX_PAGES_PER_ZSPAGE];
 	struct zspage *zspage = cache_alloc_zspage(pool, gfp);
+#ifdef CONFIG_ZONE_ZRAM
+	if (zs_alloc_zone_zram) {
+		gfp |= __GFP_ZONE_ZRAM;
+	}
+#endif
 
 	if (!zspage)
 		return NULL;
@@ -2605,6 +2616,14 @@ static int __init zs_init(void)
 #endif
 
 	zs_stat_init();
+
+#ifdef CONFIG_ZONE_ZRAM
+	if (get_zone_zram_size() > 0) {
+		zs_alloc_zone_zram = true;
+	} else {
+		zs_alloc_zone_zram = false;
+	}
+#endif
 
 	return 0;
 

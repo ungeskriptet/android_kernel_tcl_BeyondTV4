@@ -27,6 +27,7 @@
 #include <linux/wait.h>
 #include <linux/timer.h>
 #include <linux/completion.h>
+#include <linux/seq_file.h>
 
 /*
  * Callbacks for platform drivers to implement.
@@ -559,7 +560,6 @@ struct dev_pm_info {
 	bool			is_suspended:1;	/* Ditto */
 	bool			is_noirq_suspended:1;
 	bool			is_late_suspended:1;
-	bool			no_pm:1;
 	bool			early_init:1;	/* Owned by the PM core */
 	bool			direct_complete:1;	/* Owned by the PM core */
 	spinlock_t		lock;
@@ -569,6 +569,7 @@ struct dev_pm_info {
 	struct wakeup_source	*wakeup;
 	bool			wakeup_path:1;
 	bool			syscore:1;
+	bool			is_userresume:1;
 	bool			no_pm_callbacks:1;	/* Owned by the PM core */
 #else
 	unsigned int		should_wakeup:1;
@@ -602,6 +603,8 @@ struct dev_pm_info {
 	unsigned long		suspended_jiffies;
 	unsigned long		accounting_timestamp;
 #endif
+        unsigned long           resume_time;    /* CONFIG_PM_RESUME_TIME */
+
 	struct pm_subsys_data	*subsys_data;  /* Owned by the subsystem. */
 	void (*set_latency_tolerance)(struct device *, s32);
 	struct dev_pm_qos	*qos;
@@ -685,6 +688,9 @@ struct dev_pm_domain {
  * be able to use wakeup events to exit from runtime low-power states,
  * or from system low-power states such as standby or suspend-to-RAM.
  */
+#ifdef CONFIG_PM_RESUME_TIME
+extern void dpm_show_dev_resume_list(struct seq_file *buf);
+#endif
 
 #ifdef CONFIG_PM_SLEEP
 extern void device_pm_lock(void);
@@ -695,6 +701,8 @@ extern void dpm_noirq_end(void);
 extern void dpm_resume_noirq(pm_message_t state);
 extern void dpm_resume_early(pm_message_t state);
 extern void dpm_resume(pm_message_t state);
+extern void dpm_resume_user(pm_message_t state);
+extern int dpm_show_userresume_list(char *buf);
 extern void dpm_complete(pm_message_t state);
 
 extern void device_pm_unlock(void);
@@ -789,5 +797,31 @@ enum dpm_order {
 	DPM_ORDER_PARENT_BEFORE_DEV,
 	DPM_ORDER_DEV_LAST,
 };
+
+#ifdef  CONFIG_PM_RESUME_TIME
+enum power_on_type {
+        POWER_ON_AC = 0,
+        POWER_ON_DC,
+};
+
+enum pm_stage_type {
+        PM_STAGE_BOOTCODE = 0,
+        PM_STAGE_KERNEL,
+};
+#define POWER_ON_MAX        (POWER_ON_DC + 1)
+#define PM_STAGE_MAX        (PM_STAGE_KERNEL + 1)
+
+struct pm_resume_info {
+        unsigned long long elapsed;
+        unsigned long long start;
+        unsigned long long end;
+};
+void pm_resume_set_starttime(enum power_on_type powertype,
+                enum pm_stage_type stagetype, unsigned long long time);
+void pm_resume_set_endtime(enum power_on_type powertype,
+                enum pm_stage_type stagetype, unsigned long long time);
+void pm_resume_set_elapsedtime(enum power_on_type powertype,
+                enum pm_stage_type stagetype, unsigned long long time);
+#endif /* CONFIG_PM_RESUME_TIME */
 
 #endif /* _LINUX_PM_H */

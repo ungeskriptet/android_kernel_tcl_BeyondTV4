@@ -142,9 +142,6 @@ enum zone_stat_item {
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
 	NR_PAGETABLE,		/* used for pagetables */
 	NR_KERNEL_STACK_KB,	/* measured in KiB */
-#if IS_ENABLED(CONFIG_SHADOW_CALL_STACK)
-	NR_KERNEL_SCS_BYTES,	/* measured in bytes */
-#endif
 	/* Second 128 byte cacheline */
 	NR_BOUNCE,
 #if IS_ENABLED(CONFIG_ZSMALLOC)
@@ -184,7 +181,7 @@ enum node_stat_item {
 	NR_VMSCAN_IMMEDIATE,	/* Prioritise for reclaim when writeback ends */
 	NR_DIRTIED,		/* page dirtyings since bootup */
 	NR_WRITTEN,		/* page writings since bootup */
-	NR_KERNEL_MISC_RECLAIMABLE,	/* reclaimable non-slab kernel pages */
+	NR_INDIRECTLY_RECLAIMABLE_BYTES, /* measured in bytes */
 	NR_VM_NODE_STAT_ITEMS
 };
 
@@ -281,7 +278,11 @@ struct per_cpu_pages {
 	int batch;		/* chunk size for buddy add/remove */
 
 	/* Lists of pages, one per migrate type stored on the pcp-lists */
+#ifdef CONFIG_CMA_FIRST_POLICY
+	struct list_head lists[MIGRATE_TYPES];
+#else
 	struct list_head lists[MIGRATE_PCPTYPES];
+#endif
 };
 
 struct per_cpu_pageset {
@@ -350,7 +351,17 @@ enum zone_type {
 	 */
 	ZONE_HIGHMEM,
 #endif
+#ifdef CONFIG_ZONE_ZRAM
+#ifdef CONFIG_ZONE_ZRAM_DISABLE_FALLBACK
 	ZONE_MOVABLE,
+	ZONE_ZRAM,
+#else
+	ZONE_ZRAM,
+	ZONE_MOVABLE,
+#endif
+#else
+	ZONE_MOVABLE,
+#endif
 #ifdef CONFIG_ZONE_DEVICE
 	ZONE_DEVICE,
 #endif
@@ -524,6 +535,7 @@ enum pgdat_flags {
 					 * many pages under writeback
 					 */
 	PGDAT_RECLAIM_LOCKED,		/* prevents concurrent reclaim */
+    PGDAT_ALLOC_LOCKED,      /* exclusive access while migrating */
 };
 
 static inline unsigned long zone_end_pfn(const struct zone *zone)
@@ -861,7 +873,37 @@ static inline int zone_movable_is_highmem(void)
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
 	return movable_zone == ZONE_HIGHMEM;
 #else
+#if defined(CONFIG_ZONE_ZRAM) && !defined(CONFIG_ZONE_ZRAM_DISABLE_FALLBACK)
+	return (ZONE_MOVABLE - 2) == ZONE_HIGHMEM;
+#else
 	return (ZONE_MOVABLE - 1) == ZONE_HIGHMEM;
+#endif
+#endif
+}
+#endif
+
+#ifdef CONFIG_ZONE_ZRAM
+static inline int is_zone_zram_idx(enum zone_type idx)
+{
+	if (idx == ZONE_ZRAM)
+		return 1;
+
+	return 0;
+}
+
+static inline int is_zone_zram(struct zone *zone)
+{
+	int zone_idx = zone_idx(zone);
+
+	return is_zone_zram_idx(zone_idx);
+}
+
+static inline int zone_zram_is_highmem(void)
+{
+#ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
+	return TRUE;
+#else
+	return (ZONE_ZRAM - ZONE_HIGHMEM ) <= (ZONE_ZRAM - ZONE_NORMAL);
 #endif
 }
 #endif
@@ -870,11 +912,27 @@ static inline int is_highmem_idx(enum zone_type idx)
 {
 #ifdef CONFIG_HIGHMEM
 	return (idx == ZONE_HIGHMEM ||
-		(idx == ZONE_MOVABLE && zone_movable_is_highmem()));
+		(idx == ZONE_MOVABLE && zone_movable_is_highmem())
+		#ifdef CONFIG_ZONE_ZRAM
+		|| (idx == ZONE_ZRAM && zone_zram_is_highmem())
+		#endif
+		);
 #else
 	return 0;
 #endif
 }
+
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+static inline int is_movable(struct zone *zone)
+{
+	return zone == zone->zone_pgdat->node_zones + ZONE_MOVABLE;
+}
+
+static inline int zone_is_alloc_locked(const struct zone *zone)
+{
+	return test_bit(PGDAT_ALLOC_LOCKED, &zone->zone_pgdat->flags);
+}
+#endif
 
 /**
  * is_highmem - helper function to quickly check if a struct zone is a 

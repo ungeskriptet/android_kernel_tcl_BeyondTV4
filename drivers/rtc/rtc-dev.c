@@ -206,6 +206,7 @@ static unsigned int rtc_dev_poll(struct file *file, poll_table *wait)
 	return (data != 0) ? (POLLIN | POLLRDNORM) : 0;
 }
 
+extern int g_rtc_is_walarm_off;
 static long rtc_dev_ioctl(struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
@@ -371,7 +372,15 @@ static long rtc_dev_ioctl(struct file *file,
 	case RTC_IRQP_READ:
 		err = put_user(rtc->irq_freq, (unsigned long __user *)uarg);
 		break;
+#ifdef CONFIG_RTC_DRV_RTK
+	case RTC_WKALM_ON:
+		g_rtc_is_walarm_off = 0;
+		break;
 
+	case RTC_WKALM_OFF:
+		g_rtc_is_walarm_off = 1;
+		break;
+#endif
 	case RTC_WKALM_SET:
 		mutex_unlock(&rtc->ops_lock);
 		if (copy_from_user(&alarm, uarg, sizeof(alarm)))

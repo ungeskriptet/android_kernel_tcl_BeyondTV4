@@ -94,6 +94,98 @@ void arch_cpu_idle_exit(void)
 	ledtrig_cpu(CPU_LED_IDLE_END);
 }
 
+/*
+ * dump a block of kernel memory from around the given address
+ */
+unsigned long PAR(unsigned long addr, int user);
+static void show_data(unsigned long addr, int nbytes, const char *name, unsigned long base, int user)
+{
+	int	i, j;
+	unsigned long par;
+	int	nlines;
+	u32	*p;
+
+	printk("%s %#lx\n", name, base);
+	/*
+	 * don't attempt to dump non-kernel addresses or
+	 * values that are probably just small negative numbers
+	 */
+	if (addr < PAGE_OFFSET || addr > -256UL)
+		return;
+
+	par = PAR(addr, user);
+	if (par & 1) {
+		pr_err("0x%08lx (no mapping) - par(0x%lx)\n", addr, par);
+		return;
+	}
+	/* skip RBUS */
+	if ((par & 0xff000000) == 0x18000000) {
+		pr_err("0x%08lx (RBUS) - par(0x%lx)\n", addr, par);
+		return;
+	}
+
+
+	/*
+	 * round address down to a 32 bit boundary
+	 * and always dump a multiple of 32 bytes
+	 */
+	p = (u32 *)(addr & ~(sizeof(u32) - 1));
+	nbytes += (addr & (sizeof(u32) - 1));
+	nlines = (nbytes + 31) / 32;
+
+
+	for (i = 0; i < nlines; i++) {
+		u32 data[8];
+		/*
+		 * just display low 16 bits of address to keep
+		 * each line of the dump < 80 characters
+		 */
+		//printk("%04lx ", (unsigned long)p & 0xffff);
+		for (j = 0; j < 8; j++) {
+			//u32	data;
+			if (probe_kernel_address(p, data[j])) {
+				//printk(" ********");
+				data[j]=0xFFFFFFFF;
+			} else {
+				//printk(" %08x", data);
+			}
+			++p;
+		}
+		printk("%04lx: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                (unsigned long)(p - 8) & 0xffff,
+                data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7]);
+	}
+}
+#define DUMP_REG_ARM(reg, user, range)   \
+    show_data( regs->ARM_##reg - (range), (range)*2, #reg ": ", regs->ARM_##reg, user)
+
+static void show_extra_register_data(struct pt_regs *regs, int nbytes)
+{
+	mm_segment_t fs;
+	int user = (user_mode(regs) != 0) ? 1: 0;
+
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+        DUMP_REG_ARM(pc , user, nbytes);
+        DUMP_REG_ARM(lr , user, nbytes);
+        DUMP_REG_ARM(sp , user, nbytes);
+        DUMP_REG_ARM(ip , user, nbytes);
+        DUMP_REG_ARM(fp , user, nbytes);
+        DUMP_REG_ARM(r0 , user, nbytes);
+        DUMP_REG_ARM(r1 , user, nbytes);
+        DUMP_REG_ARM(r2 , user, nbytes);
+        DUMP_REG_ARM(r3 , user, nbytes);
+        DUMP_REG_ARM(r4 , user, nbytes);
+        DUMP_REG_ARM(r5 , user, nbytes);
+        DUMP_REG_ARM(r6 , user, nbytes);
+        DUMP_REG_ARM(r7 , user, nbytes);
+        DUMP_REG_ARM(r8 , user, nbytes);
+        DUMP_REG_ARM(r9 , user, nbytes);
+        DUMP_REG_ARM(r10, user, nbytes);
+
+	set_fs(fs);
+}
+
 void __show_regs(struct pt_regs *regs)
 {
 	unsigned long flags;
@@ -185,12 +277,16 @@ void __show_regs(struct pt_regs *regs)
 		printk("Control: %08x%s\n", ctrl, buf);
 	}
 #endif
+
+	//show_extra_register_data(regs, 128);
 }
 
 void show_regs(struct pt_regs * regs)
 {
+        extern void dump_regs_refs(const char *lvl, struct pt_regs *regs);
 	__show_regs(regs);
 	dump_stack();
+        dump_regs_refs(KERN_EMERG, regs);
 }
 
 ATOMIC_NOTIFIER_HEAD(thread_notify_head);

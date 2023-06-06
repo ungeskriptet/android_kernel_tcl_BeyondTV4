@@ -36,6 +36,26 @@
 
 #define unk	KEY_UNKNOWN
 
+#ifdef  CONFIG_RTK_KDRV_TV030_IR
+static const unsigned int hid_keyboard[256] = {
+	  0,  0,  0,  0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38,
+	 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44,  2,  3,
+	  4,  5,  6,  7,  8,  9, 10, 11, 28,  1, 14, 15, 57, 12, 13, 26,
+	 27, 43, 43, 39, 40, 41, 51, 52, 53, 58, 59, 60, 61, 62, 63, 64,
+	 65, 66, 67, 68, 87, 88, 99, 70,119,110,102,104,111,107,109,106,
+	105,108,103, 69, 98, 55, 74, 78, 96, 79, 80, 81, 75, 76, 77, 71,
+	 72, 73, 82, 83, 86,139,116,117,183,184,185,186,187,188,189,190,
+	191,192,193,194,134,138,130,132,128,129,131,137,133,135,136,113,
+	115,114,227,172,228,121,229, 89, 93,124, 92, 94, 95,230,231,232, /// 8
+	122,123, 90, 91, 85,402,403,417,377,unk,unk,unk,111,245,unk,unk, /// 9
+	unk,231,250,251,252,253,254,255,233,234,unk,236,237,584,400,401, /// a
+	580,368,370,388,399,398,179,180,582,201,418,395,558,195,unk,unk, /// b
+	unk,unk,unk,251,unk,unk,unk,unk,unk,unk,unk,unk,unk,unk,unk,unk, /// c
+	unk,unk,unk,unk,unk,unk,unk,unk,111,unk,unk,unk,unk,unk,unk,unk, /// d
+	 29, 42, 56,102, 97, 54,100,126,164,166,165,163,161,115,114,113, /// e
+	150,158,159,128,136,177,178,176,142,152,173,140,unk,unk,unk,unk  /// f
+};
+#else
 static const unsigned char hid_keyboard[256] = {
 	  0,  0,  0,  0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38,
 	 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44,  2,  3,
@@ -54,6 +74,7 @@ static const unsigned char hid_keyboard[256] = {
 	 29, 42, 56,125, 97, 54,100,126,164,166,165,163,161,115,114,113,
 	150,158,159,128,136,177,178,176,142,152,173,140,unk,unk,unk,unk
 };
+#endif
 
 static const struct {
 	__s32 x;
@@ -863,6 +884,25 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 	case HID_UP_CONSUMER:	/* USB HUT v1.12, pages 75-84 */
 		switch (usage->hid & HID_USAGE) {
 		case 0x000: goto ignore;
+		case 0x007: map_key_clear(KEY_1);       break;
+		case 0x008: map_key_clear(KEY_2);       break;
+		case 0x009: map_key_clear(KEY_3);       break;
+		case 0x00a: map_key_clear(KEY_4);       break;
+		case 0x00b: map_key_clear(KEY_5);       break;
+		case 0x00c: map_key_clear(KEY_6);       break;
+		case 0x00d: map_key_clear(KEY_7);       break;
+		case 0x00e: map_key_clear(KEY_8);       break;
+		case 0x00f: map_key_clear(KEY_9);       break;
+		case 0x010: map_key_clear(KEY_0);       break;
+		case 0x011: map_key_clear(KEY_NEWS);		 break; /* map to KEY_11 */
+		case 0x012: map_key_clear(KEY_VOICEMAIL);		 break; 
+		case 0x013: map_key_clear(KEY_MESSENGER);		 break; /* map to KEY_D_DATA_BML */
+		case 0x014: map_key_clear(KEY_EPG); 	  break;
+		case 0x015: map_key_clear(KEY_DISPLAYTOGGLE);	   break; /* map to KEY_TERMINAL */
+		case 0x016: map_key_clear(KEY_SPELLCHECK);	   break; /* map to KEY_SATELLITE_BS */
+		case 0x017: map_key_clear(KEY_LOGOFF);	   break; /* map to KEY_SATELLITE_CS */
+		case 0x018: map_key_clear(KEY_DOLLAR); 	  break; /* map to KEY_RECORD_LIST */
+		case 0x019: map_key_clear(KEY_WWAN);       break;/* map to : HULU key: 246 */
 		case 0x030: map_key_clear(KEY_POWER);		break;
 		case 0x031: map_key_clear(KEY_RESTART);		break;
 		case 0x032: map_key_clear(KEY_SLEEP);		break;
@@ -879,6 +919,16 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		case 0x046: map_key_clear(KEY_ESC);		break; /* Menu Escape */
 		case 0x047: map_key_clear(KEY_KPPLUS);		break; /* Menu Value Increase */
 		case 0x048: map_key_clear(KEY_KPMINUS);		break; /* Menu Value Decrease */
+		case 0x049: map_key_clear(KEY_GAMES);       break; /* map to tv_input: 417 */
+		case 0x050: map_key_clear(KEY_MENU);        break; /* map to menu: 139 */
+		case 0x051: map_key_clear(KEY_VIDEO_PREV);  break; /* map to netflix: 242 */
+		case 0x052: map_key_clear(KEY_DOCUMENTS);   break; /* map to keyboard: 245 */
+		case 0x053: map_key_clear(KEY_SWITCHVIDEOMODE);  break; /* map to : T key: 227 */
+		case 0x054: map_key_clear(KEY_MOUSE_KEY);   break;/* map to : Mouse key: 84 */
+		case 0x055: map_key_clear(KEY_FORWARDMAIL); break;/* map to : setting:  233*/
+		case 0x056: map_key_clear(KEY_GLOBAL_PLAY); break;/* map to : global play : 251 */
+        case 0x057: map_key_clear(KEY_DISPLAY_OFF); break;/* map to : youtube: 245 */
+        case 0x058: map_key_clear(KEY_BATTERY);     break;/* map to : media center : 236 */
 
 		case 0x060: map_key_clear(KEY_INFO);		break; /* Data On Screen */
 		case 0x061: map_key_clear(KEY_SUBTITLE);	break; /* Closed Caption */
@@ -897,7 +947,11 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		case 0x074: map_key_clear(KEY_BRIGHTNESS_MAX);		break;
 		case 0x075: map_key_clear(KEY_BRIGHTNESS_AUTO);		break;
 
-		case 0x079: map_key_clear(KEY_KBDILLUMUP);	break;
+		case 0x076: map_key_clear(KEY_INFO_DEFINE);		break;
+		case 0x077: map_key_clear(KEY_GLOBO_PLAY);		break;
+		case 0x078: map_key_clear(KEY_ALL_APP);		break;
+		case 0x079: map_key_clear(KEY_POWER);		break;
+		// case 0x079: map_key_clear(KEY_KBDILLUMUP);	break;
 		case 0x07a: map_key_clear(KEY_KBDILLUMDOWN);	break;
 		case 0x07c: map_key_clear(KEY_KBDILLUMTOGGLE);	break;
 
@@ -926,9 +980,10 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		case 0x09c: map_key_clear(KEY_CHANNELUP);	break;
 		case 0x09d: map_key_clear(KEY_CHANNELDOWN);	break;
 		case 0x0a0: map_key_clear(KEY_VCR2);		break;
+		case 0x0a6: map_key_clear(KEY_MOUSE_KEY);     break; /* map to : Mouse key: 84 */
 
 		case 0x0b0: map_key_clear(KEY_PLAY);		break;
-		case 0x0b1: map_key_clear(KEY_PAUSE);		break;
+		case 0x0b1: map_key_clear(KEY_PAUSECD);		break;
 		case 0x0b2: map_key_clear(KEY_RECORD);		break;
 		case 0x0b3: map_key_clear(KEY_FASTFORWARD);	break;
 		case 0x0b4: map_key_clear(KEY_REWIND);		break;
@@ -1032,6 +1087,20 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		case 0x2cb: map_key_clear(KEY_KBDINPUTASSIST_ACCEPT);	break;
 		case 0x2cc: map_key_clear(KEY_KBDINPUTASSIST_CANCEL);	break;
 
+#ifdef CONFIG_RTK_KDRV_TV002_IR
+    case 0x10c3: case 0x3c3: map_key_clear(KEY_JUMP);		break; //action menu key
+    case 0x1166: case 0x466: map_key_clear(KEY_DISPLAY);		break; //display key
+    case 0x118e: case 0x48e: map_key_clear(KEY_RED);		break;
+    case 0x118f: case 0x48f: map_key_clear(KEY_GREEN);		break;
+    case 0x1190: case 0x490: map_key_clear(KEY_YELLOW);		break;
+    case 0x1191: case 0x491: map_key_clear(KEY_BLUE);		break;
+    case 0x122e: case 0x52e: map_key_clear(KEY_AUDIO);		break; //audio key
+    case 0x122f: case 0x52f: map_key_clear(KEY_RETUEN_CH);		break; //jump key
+    case 0x1233: case 0x533: map_key_clear(KEY_SOURCE);		break;
+    case 0x1244: case 0x544: map_key_clear(KEY_APPS);		break;
+    case 0x1247: case 0x547: map_key_clear(KEY_NETFLIX);		break;
+    case 0x124b: case 0x54b: map_key_clear(KEY_GOOGLE_PLAY);		break;
+#endif
 		case 0x29f: map_key_clear(KEY_SCALE);		break;
 
 		default: map_key_clear(KEY_UNKNOWN);

@@ -911,7 +911,11 @@ struct block_device *bdget(dev_t dev)
 		inode->i_rdev = dev;
 		inode->i_bdev = bdev;
 		inode->i_data.a_ops = &def_blk_aops;
+#if 0
+		mapping_set_gfp_mask(&inode->i_data, GFP_HIGHUSER_MOVABLE);
+#else
 		mapping_set_gfp_mask(&inode->i_data, GFP_USER);
+#endif
 		spin_lock(&bdev_lock);
 		list_add(&bdev->bd_list, &all_bdevs);
 		spin_unlock(&bdev_lock);
@@ -1900,9 +1904,6 @@ ssize_t blkdev_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 	if (bdev_read_only(I_BDEV(bd_inode)))
 		return -EPERM;
-
-	if (IS_SWAPFILE(bd_inode))
-		return -ETXTBSY;
 
 	if (!iov_iter_count(from))
 		return 0;

@@ -19,7 +19,7 @@
 
 #include "sched.h"
 
-unsigned long boosted_cpu_util(int cpu);
+unsigned long boosted_cpu_util(int cpu, unsigned long other_util);
 
 #define SUGOV_KTHREAD_PRIORITY	50
 
@@ -210,11 +210,13 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 
 static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 {
-	unsigned long max_cap;
+	unsigned long max_cap, rt;
 
 	max_cap = arch_scale_cpu_capacity(NULL, cpu);
 
-	*util = boosted_cpu_util(cpu);
+	rt = sched_get_rt_rq_util(cpu);
+
+	*util = boosted_cpu_util(cpu, rt);
 	*util = min(*util, max_cap);
 	*max = max_cap;
 }

@@ -187,6 +187,7 @@ struct input_dev {
 	struct input_value *vals;
 
 	bool devres_managed;
+	unsigned int last_key_intercept_status; /*0:no intercept, 1: intercept*/
 };
 #define to_input_dev(d) container_of(d, struct input_dev, dev)
 

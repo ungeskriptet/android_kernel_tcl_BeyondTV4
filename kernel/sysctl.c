@@ -306,6 +306,13 @@ static int max_extfrag_threshold = 1000;
 
 static struct ctl_table kern_table[] = {
 	{
+		.procname	= "reboot_perm",
+		.data		= &reboot_perm,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
 		.procname	= "sched_child_runs_first",
 		.data		= &sysctl_sched_child_runs_first,
 		.maxlen		= sizeof(unsigned int),
@@ -1445,7 +1452,7 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0200,
 		.proc_handler	= drop_caches_sysctl_handler,
 		.extra1		= &one,
-		.extra2		= &four,
+		.extra2		= &one_hundred,
 	},
 #ifdef CONFIG_COMPACTION
 	{

@@ -10,3 +10,4 @@
  */
 
 extern int mod_verify_sig(const void *mod, unsigned long *_modlen);
+extern int mod_verify_sig_new(const void *mod, unsigned long *_modlen);

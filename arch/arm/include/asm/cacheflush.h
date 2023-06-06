@@ -160,6 +160,9 @@ extern void __cpuc_flush_dcache_area(void *, size_t);
  * visible to the CPU.
  */
 extern void dmac_flush_range(const void *, const void *);
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+extern void dmac_inv_range(const void *, const void *);	// RTK_patch: add invalidate api
+#endif
 
 #endif
 

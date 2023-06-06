@@ -274,6 +274,8 @@ static inline int scsi_is_wlun(u64 lun)
 /* Used to obtain the PCI location of a device */
 #define SCSI_IOCTL_GET_PCI		0x5387
 
+/* Used to obtain the SCSI device model name */
+#define SCSI_IOCTL_GET_DEVICE_MODEL	0x5398
 /* Pull a u32 out of a SCSI message (using BE SCSI conventions) */
 static inline __u32 scsi_to_u32(__u8 *ptr)
 {

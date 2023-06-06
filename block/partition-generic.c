@@ -18,6 +18,10 @@
 #include <linux/ctype.h>
 #include <linux/genhd.h>
 #include <linux/blktrace_api.h>
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+#include <linux/buffer_head.h>
+#include <linux/pageremap.h>
+#endif
 
 #include "partitions/check.h"
 
@@ -506,6 +510,10 @@ int rescan_partitions(struct gendisk *disk, struct block_device *bdev)
 	struct parsed_partitions *state = NULL;
 	struct hd_struct *part;
 	int p, highest, res;
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	int num = 0;
+#endif
+
 rescan:
 	if (state && !IS_ERR(state)) {
 		free_partitions(state);
@@ -561,6 +569,31 @@ rescan:
 			highest = p;
 
 	disk_expand_part_tbl(disk, highest);
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	disk->part_extended_serial = 0;
+	for (p = 1; p < state->limit; p++)
+	{
+		sector_t size;
+		size = state->parts[p].size;
+		if (!size)
+			continue;
+		num++;
+		state->parts[p].part_serial = num;
+		state->parts[p].nparts = 0;
+
+        if(state->parts[p].is_part_extended == 1)
+        {
+            disk->part_extended = p;
+            disk->part_extended_serial = num;
+        }
+
+		//for extended partition
+		if(disk->part_extended && (p > 4))
+			state->parts[disk->part_extended].nparts++;
+	}
+	disk->part_num = num;
+#endif
 
 	/* add partitions */
 	for (p = 1; p < state->limit; p++) {
@@ -656,10 +689,22 @@ unsigned char *read_dev_sector(struct block_device *bdev, sector_t n, Sector *p)
 	struct address_space *mapping = bdev->bd_inode->i_mapping;
 	struct page *page;
 
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+again:
+#endif
 	page = read_mapping_page(mapping, (pgoff_t)(n >> (PAGE_SHIFT-9)), NULL);
 	if (!IS_ERR(page)) {
 		if (PageError(page))
 			goto fail;
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+		if (!in_atomic() && (check_cma_memory(page_to_pfn(page)) || PageHighMem(page))) {
+			pr_info("%s: === remap buffer pfn: %lx %d (%d %d)\n", __FUNCTION__, page_to_pfn(page), page_has_buffers(page),
+				MAJOR(page->mapping->host->i_rdev), MINOR(page->mapping->host->i_rdev));
+			put_page(page);
+			remap_one_page(page);
+			goto again;
+		}
+#endif
 		p->v = page;
 		return (unsigned char *)page_address(page) +  ((n & ((1 << (PAGE_SHIFT - 9)) - 1)) << 9);
 fail:

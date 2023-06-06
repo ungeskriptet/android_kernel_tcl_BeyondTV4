@@ -1,7 +1,7 @@
 /*
  *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *                   Takashi Iwai <tiwai@suse.de>
- * 
+ *
  *  Generic memory allocators
  *
  *
@@ -26,6 +26,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/genalloc.h>
 #include <sound/memalloc.h>
+#include <linux/pageremap.h>
 
 /*
  *
@@ -208,6 +209,15 @@ int snd_dma_alloc_pages(int type, struct device *device, size_t size,
 		snd_malloc_sgbuf_pages(device, size, dmab, NULL);
 		break;
 #endif
+	case SNDRV_RTK_DMA_TYPE:
+		//dmab->area = dma_alloc_coherent(NULL, size, &dmab->addr, GFP_KERNEL);
+		dmab->area = dvr_malloc_specific(size, GFP_DCU1);
+		if (!dmab->area) {
+			pr_err("snd-malloc: SNDRV_RTK_DMA_TYPE failed\n");
+		} else {
+			dmab->addr = dvr_to_phys(dmab->area);
+		}
+		break;
 	default:
 		pr_err("snd-malloc: invalid device type %d\n", type);
 		dmab->area = NULL;
@@ -283,6 +293,10 @@ void snd_dma_free_pages(struct snd_dma_buffer *dmab)
 		snd_free_sgbuf_pages(dmab);
 		break;
 #endif
+	case SNDRV_RTK_DMA_TYPE:
+		//dma_free_coherent(NULL, dmab->bytes, dmab->area, dmab->addr);
+		dvr_free(dmab->area);
+		break;
 	default:
 		pr_err("snd-malloc: invalid device type %d\n", dmab->dev.type);
 	}

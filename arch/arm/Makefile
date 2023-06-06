@@ -30,7 +30,7 @@ GZFLAGS		:=-9
 KBUILD_CFLAGS	+= $(call cc-option,-fno-dwarf2-cfi-asm)
 
 # This should work on most of the modern platforms
-KBUILD_DEFCONFIG := multi_v7_defconfig
+KBUILD_DEFCONFIG := arm_defconfig
 
 # defines filename extension depending memory management type.
 ifeq ($(CONFIG_MMU),)
@@ -39,10 +39,7 @@ KBUILD_CFLAGS	+= $(call cc-option,-mno-unaligned-access)
 endif
 
 ifeq ($(CONFIG_FRAME_POINTER),y)
-KBUILD_CFLAGS	+=-fno-omit-frame-pointer
-ifeq ($(cc-name),gcc)
-KBUILD_CFLAGS += -mapcs -mno-sched-prolog
-endif
+KBUILD_CFLAGS	+=-fno-omit-frame-pointer -mapcs -mno-sched-prolog
 endif
 
 ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)
@@ -70,7 +67,21 @@ KBUILD_CFLAGS	+= $(call cc-option,-fno-ipa-sra)
 # macro, but instead defines a whole series of macros which makes
 # testing for a specific architecture or later rather impossible.
 arch-$(CONFIG_CPU_32v7M)	=-D__LINUX_ARM_ARCH__=7 -march=armv7-m -Wa,-march=armv7-m
+#RTK_patch: change -march option for our toolchain
+ifeq ($(CONFIG_ARCH_RTK285X),y)
+arch-$(CONFIG_CPU_32v7)         =-D__LINUX_ARM_ARCH__=7 $(call cc-option, -march=armv8.2-a,-march=armv5t -Wa$(comma)-march=armv8.2-a)
+else ifeq ($(CONFIG_ARCH_RTK285O),y)
+arch-$(CONFIG_CPU_32v7)         =-D__LINUX_ARM_ARCH__=7 $(call cc-option, -march=armv8.2-a,-march=armv5t -Wa$(comma)-march=armv8.2-a)
+else ifeq ($(CONFIG_ARCH_RTK287X),y)
+arch-$(CONFIG_CPU_32v7)         =-D__LINUX_ARM_ARCH__=7 $(call cc-option,-march=armv8-a,-march=armv5t -Wa$(comma)-march=armv8-a)
+else ifeq ($(CONFIG_ARCH_RTK287O),y)
+arch-$(CONFIG_CPU_32v7)         =-D__LINUX_ARM_ARCH__=7 $(call cc-option, -march=armv8.2-a,-march=armv5t -Wa$(comma)-march=armv8.2-a)
+else ifeq ($(CONFIG_ARCH_RTK288O),y)
+arch-$(CONFIG_CPU_32v7)         =-D__LINUX_ARM_ARCH__=7 $(call cc-option, -march=armv8.2-a,-march=armv5t -Wa$(comma)-march=armv8.2-a)
+else
 arch-$(CONFIG_CPU_32v7)		=-D__LINUX_ARM_ARCH__=7 $(call cc-option,-march=armv7-a,-march=armv5t -Wa$(comma)-march=armv7-a)
+endif
+arch-$(CONFIG_CPU_32v8)		=-D__LINUX_ARM_ARCH__=7 $(call cc-option,-march=armv8.2-a,-march=armv8-a,-march=armv7-a -Wa$(comma)-march=armv8-a)
 arch-$(CONFIG_CPU_32v6)		=-D__LINUX_ARM_ARCH__=6 $(call cc-option,-march=armv6,-march=armv5t -Wa$(comma)-march=armv6)
 # Only override the compiler option if ARMv6. The ARMv6K extensions are
 # always available in ARMv7
@@ -118,10 +129,6 @@ ifeq ($(CONFIG_ARM_UNWIND),y)
 CFLAGS_ABI	+=-funwind-tables
 endif
 
-ifeq ($(cc-name),clang)
-CFLAGS_ABI	+= -meabi gnu
-endif
-
 # Accept old syntax despite ".syntax unified"
 AFLAGS_NOWARN	:=$(call as-option,-Wa$(comma)-mno-warn-deprecated,-Wa$(comma)-W)
 
@@ -159,6 +166,14 @@ endif
 textofs-$(CONFIG_ARCH_MSM8X60) := 0x00208000
 textofs-$(CONFIG_ARCH_MSM8960) := 0x00208000
 textofs-$(CONFIG_ARCH_AXXIA) := 0x00308000
+
+# RTK_patch: modify the text offset as 0x108000
+textofs-y = 0x00108000    ## default 
+textofs-$(CONFIG_ARCH_RTK285X) := 0x00108000
+textofs-$(CONFIG_ARCH_RTK285O) := 0x00108000
+textofs-$(CONFIG_ARCH_RTK287X) := 0x00108000
+textofs-$(CONFIG_ARCH_RTK287O) := 0x00108000
+textofs-$(CONFIG_ARCH_RTK288O) := 0x00108000
 
 # Machine directory name.  This list is sorted alphanumerically
 # by CONFIG_* macro name.
@@ -235,6 +250,12 @@ machine-$(CONFIG_ARCH_W90X900)		+= w90x900
 machine-$(CONFIG_ARCH_ZX)		+= zx
 machine-$(CONFIG_ARCH_ZYNQ)		+= zynq
 machine-$(CONFIG_PLAT_SPEAR)		+= spear
+# RTK_patch: add our machine folders
+#machine-$(CONFIG_ARCH_RTK285X)          += rtd285x
+#machine-$(CONFIG_ARCH_RTK285O)          += rtd285o
+#machine-$(CONFIG_ARCH_RTK287X)          += rtd287x
+#machine-$(CONFIG_ARCH_RTK287O)          += rtd287o
+machine-y          += rtd288o
 
 # Platform directory name.  This list is sorted alphanumerically
 # by CONFIG_* macro name.
@@ -255,18 +276,16 @@ CFLAGS_3c589_cs.o :=-DISA_SIXTEEN_BIT_PERIPHERAL
 export CFLAGS_3c589_cs.o
 endif
 
-# The byte offset of the kernel image in RAM from the start of RAM.
-TEXT_OFFSET := $(textofs-y)
-
 # The first directory contains additional information for the boot setup code
 ifneq ($(machine-y),)
 MACHINE  := arch/arm/mach-$(word 1,$(machine-y))/
-else
-MACHINE  :=
 endif
 ifeq ($(CONFIG_ARCH_MULTIPLATFORM),y)
 MACHINE  :=
 endif
+
+# The byte offset of the kernel image in RAM from the start of RAM.
+TEXT_OFFSET := $(textofs-y)
 
 machdirs := $(patsubst %,arch/arm/mach-%/,$(machine-y))
 platdirs := $(patsubst %,arch/arm/plat-%/,$(sort $(plat-y)))
@@ -355,8 +374,9 @@ $(INSTALL_TARGETS):
 
 PHONY += dtbs dtbs_install
 
+# RTK_patch: add dependence target: embedded_dtb
 dtbs: prepare scripts
-	$(Q)$(MAKE) $(build)=$(boot)/dts
+	$(Q)$(MAKE) $(build)=$(boot)/dts embedded_dtb
 
 dtbs_install:
 	$(Q)$(MAKE) $(dtbinst)=$(boot)/dts

@@ -247,6 +247,46 @@ static void verity_hash_at_level(struct dm_verity *v, sector_t block, int level,
 		*offset = idx << (v->hash_dev_block_bits - v->hash_per_block_bits);
 }
 
+static void verify_dump_data(char *s, unsigned char *data, int len)
+{
+	unsigned int sum = 0;
+	unsigned int *ptr = (unsigned int *)data;
+	DMERR("DM Data(%s) Add(%08lx), len(%d)\n", s, (unsigned int)data, len);
+	len = len >> 2; //to 4bytes;
+
+	while(len >0)
+	{
+		if(len >=4)
+		{
+			//tick_watchdog();
+			//DMERR("Add(%08lx): %08lx %08lx %08lx %08lx\n", ptr, ptr[0], ptr[1], ptr[2], ptr[3]);
+			sum += ptr[0]+ptr[1]+ptr[2]+ptr[3];
+			ptr += 4;
+			len -= 4;
+		}
+		else
+		{
+			if(len == 1)
+			{
+				//DMERR("Add(%08lx): %08lx\n", ptr, ptr[0]);
+				sum += ptr[0];
+			}
+			if(len == 2)
+			{
+				//DMERR("Add(%08lx): %08lx %08lx\n", ptr, ptr[0], ptr[1]);
+				sum += ptr[0]+ptr[1];
+			}
+			if(len == 3)
+			{
+				//DMERR("Add(%08lx): %08lx %08lx %08lx\n", ptr, ptr[0], ptr[1],ptr[2]);
+				sum += ptr[0]+ptr[1]+ptr[2];
+			}
+			break;
+		}
+	}
+	DMERR("DM Data sum(%x)\n", sum);
+}
+
 /*
  * Handle verification errors.
  */
@@ -351,12 +391,34 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
 					   hash_block, data, NULL) == 0)
 			aux->hash_verified = 1;
+#if 0
 		else if (verity_handle_err(v,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
 					   hash_block)) {
 			r = -EIO;
 			goto release_ret_r;
 		}
+#else
+		else
+		{
+			int ret;
+			console_loglevel = 5;
+#if 1 //dump infomation
+			verify_dump_data("Calcu", verity_io_real_digest(v, io), v->digest_size);
+			verify_dump_data("Expect", want_digest, v->digest_size);
+			verify_dump_data("Slat", v->salt, v->salt_size);
+			verify_dump_data("Block", data, 1 << v->hash_dev_block_bits);
+#endif
+			ret =verity_handle_err(v,
+					   DM_VERITY_BLOCK_TYPE_METADATA,
+					   hash_block);
+			if(ret)
+			{
+				r = -EIO;
+				goto release_ret_r;
+			}
+		}
+#endif
 	}
 
 	data += offset;

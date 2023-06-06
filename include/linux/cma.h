@@ -28,6 +28,7 @@ extern int __init cma_declare_contiguous(phys_addr_t base,
 			phys_addr_t size, phys_addr_t limit,
 			phys_addr_t alignment, unsigned int order_per_bit,
 			bool fixed, const char *name, struct cma **res_cma);
+extern int __init cma_declare_null(struct cma **res_cma);
 extern int cma_init_reserved_mem(phys_addr_t base, phys_addr_t size,
 					unsigned int order_per_bit,
 					const char *name,
@@ -37,4 +38,12 @@ extern struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align,
 extern bool cma_release(struct cma *cma, const struct page *pages, unsigned int count);
 
 extern int cma_for_each_area(int (*it)(struct cma *cma, void *data), void *data);
+
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+void lock_cma(void);
+void unlock_cma(void);
+unsigned long cma_avail_size(const struct cma *cma);
+unsigned long cma_get_bitmap(const struct cma *cma);
+#endif
+
 #endif

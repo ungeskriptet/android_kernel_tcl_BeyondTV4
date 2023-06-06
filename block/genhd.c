@@ -1074,6 +1074,44 @@ static ssize_t disk_discard_alignment_show(struct device *dev,
 	return sprintf(buf, "%d\n", queue_discard_alignment(disk->queue));
 }
 
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+static ssize_t disk_part_num_show(struct device *dev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+
+	return sprintf(buf, "%d\n", disk->part_num);
+}
+
+static ssize_t disk_part_extended_show(struct device *dev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+
+	return sprintf(buf, "%d\n", disk->part_extended);
+}
+
+static ssize_t disk_part_extended_serial_show(struct device *dev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+
+	return sprintf(buf, "%d\n", disk->part_extended_serial);
+}
+
+static ssize_t disk_port_structure_show(struct device *dev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+
+	return sprintf(buf, "%s\n", disk->port_structure);
+}
+#endif
+
 static DEVICE_ATTR(range, S_IRUGO, disk_range_show, NULL);
 static DEVICE_ATTR(ext_range, S_IRUGO, disk_ext_range_show, NULL);
 static DEVICE_ATTR(removable, S_IRUGO, disk_removable_show, NULL);
@@ -1097,6 +1135,13 @@ static struct device_attribute dev_attr_fail_timeout =
 		part_timeout_store);
 #endif
 
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+static DEVICE_ATTR(part_num, S_IRUGO, disk_part_num_show, NULL);
+static DEVICE_ATTR(part_extended, S_IRUGO, disk_part_extended_show, NULL);
+static DEVICE_ATTR(part_extended_serial, S_IRUGO, disk_part_extended_serial_show, NULL);
+static DEVICE_ATTR(port_structure, S_IRUGO, disk_port_structure_show, NULL);
+#endif
+
 static struct attribute *disk_attrs[] = {
 	&dev_attr_range.attr,
 	&dev_attr_ext_range.attr,
@@ -1115,6 +1160,13 @@ static struct attribute *disk_attrs[] = {
 #ifdef CONFIG_FAIL_IO_TIMEOUT
 	&dev_attr_fail_timeout.attr,
 #endif
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	&dev_attr_part_num.attr,
+	&dev_attr_part_extended.attr,
+	&dev_attr_part_extended_serial.attr,
+	&dev_attr_port_structure.attr,
+#endif
+
 	NULL
 };
 
@@ -1229,6 +1281,22 @@ static void disk_release(struct device *dev)
 		blk_put_queue(disk->queue);
 	kfree(disk);
 }
+
+static int disk_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+	struct disk_part_iter piter;
+	struct hd_struct *part;
+	int cnt = 0;
+
+	disk_part_iter_init(&piter, disk, 0);
+	while((part = disk_part_iter_next(&piter)))
+		cnt++;
+	disk_part_iter_exit(&piter);
+	add_uevent_var(env, "NPARTS=%u", cnt);
+	return 0;
+}
+
 struct class block_class = {
 	.name		= "block",
 };
@@ -1248,6 +1316,7 @@ static const struct device_type disk_type = {
 	.groups		= disk_attr_groups,
 	.release	= disk_release,
 	.devnode	= block_devnode,
+	.uevent		= disk_uevent,
 };
 
 #ifdef CONFIG_PROC_FS
@@ -1416,6 +1485,10 @@ struct gendisk *alloc_disk_node(int minors, int node_id)
 		}
 
 		disk->minors = minors;
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+		disk->part_num = -1;
+#endif
 		rand_initialize_disk(disk);
 		disk_to_dev(disk)->class = &block_class;
 		disk_to_dev(disk)->type = &disk_type;

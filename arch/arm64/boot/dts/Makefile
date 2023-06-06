@@ -1,4 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
+
+# include board specific dts makefile
+ifeq ($(CONFIG_ARCH_SHEIPA),y)
+dts-dirs += ../../bsp/dts
+endif
 dts-dirs += actions
 dts-dirs += al
 dts-dirs += allwinner

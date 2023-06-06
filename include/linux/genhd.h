@@ -129,6 +129,11 @@ struct hd_struct {
 #endif
 	struct percpu_ref ref;
 	struct rcu_head rcu_head;
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	int part_serial;
+	int nparts;
+#endif
 };
 
 #define GENHD_FL_REMOVABLE			1
@@ -207,6 +212,16 @@ struct gendisk {
 #endif	/* CONFIG_BLK_DEV_INTEGRITY */
 	int node_id;
 	struct badblocks *bb;
+
+	// add by cfyeh : for hotplug +++
+	int part_num;
+	int nparts;
+	int part_extended;
+	int part_extended_serial;
+	char port_structure[32];
+	int signature;
+	int physical_sector;
+	// add by cfyeh : for hotplug ---
 };
 
 static inline struct gendisk *part_to_disk(struct hd_struct *part)

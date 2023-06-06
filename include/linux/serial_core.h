@@ -195,6 +195,7 @@ struct uart_port {
 #define UPF_SPD_SHI		((__force upf_t) ASYNC_SPD_SHI        /* 12 */ )
 #define UPF_LOW_LATENCY		((__force upf_t) ASYNC_LOW_LATENCY    /* 13 */ )
 #define UPF_BUGGY_UART		((__force upf_t) ASYNC_BUGGY_UART     /* 14 */ )
+#define UPF_NO_TXEN_TEST        ((__force upf_t) (1 << 15))
 #define UPF_MAGIC_MULTIPLIER	((__force upf_t) ASYNC_MAGIC_MULTIPLIER /* 16 */ )
 
 #define UPF_NO_THRE_TEST	((__force upf_t) (1 << 19))
@@ -420,7 +421,7 @@ int uart_match_port(struct uart_port *port1, struct uart_port *port2);
 int uart_suspend_port(struct uart_driver *reg, struct uart_port *port);
 int uart_resume_port(struct uart_driver *reg, struct uart_port *port);
 
-#define uart_circ_empty(circ)		((circ)->head == (circ)->tail)
+#define uart_circ_empty(circ)		(((circ)->head == (circ)->tail) || ((circ)->buf == NULL))
 #define uart_circ_clear(circ)		((circ)->head = (circ)->tail = 0)
 
 #define uart_circ_chars_pending(circ)	\

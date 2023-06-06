@@ -34,6 +34,7 @@ extern enum reboot_type reboot_type;
 extern int reboot_default;
 extern int reboot_cpu;
 extern int reboot_force;
+extern int reboot_perm;
 
 
 extern int register_reboot_notifier(struct notifier_block *);

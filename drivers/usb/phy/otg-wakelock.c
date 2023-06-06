@@ -21,6 +21,7 @@
 #include <linux/notifier.h>
 #include <linux/spinlock.h>
 #include <linux/usb/otg.h>
+#include <mach/platform.h>
 
 #define TEMPORARY_HOLD_TIME	2000
 
@@ -138,6 +139,15 @@ static int __init otg_wakelock_init(void)
 {
 	int ret;
 	struct usb_phy *phy;
+
+	//+++
+        if(!strcmp(platform_info.androidboot, "cts")) {
+                snprintf(vbus_lock.name, sizeof(vbus_lock.name), "vbus-cts");
+		wakeup_source_init(&vbus_lock.wakesrc, vbus_lock.name);
+                otgwl_handle_event(USB_EVENT_ENUMERATED);
+                return ret;
+        }
+        //---
 
 	phy = usb_get_phy(USB_PHY_TYPE_USB2);
 

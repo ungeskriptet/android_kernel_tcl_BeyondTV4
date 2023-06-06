@@ -189,7 +189,8 @@ void refresh_zone_stat_thresholds(void)
 		struct pglist_data *pgdat = zone->zone_pgdat;
 		unsigned long max_drift, tolerate_drift;
 
-		threshold = calculate_normal_threshold(zone);
+//		threshold = calculate_normal_threshold(zone);
+		threshold = 0;
 
 		for_each_online_cpu(cpu) {
 			int pgdat_threshold;
@@ -1031,8 +1032,21 @@ int fragmentation_index(struct zone *zone, unsigned int order)
 #define TEXT_FOR_HIGHMEM(xx)
 #endif
 
+
+#ifdef CONFIG_ZONE_ZRAM
+#define TEXT_FOR_ZONE_ZRAM(xx) xx "_zone_zram",
+#else
+#define TEXT_FOR_ZONE_ZRAM(xx)
+#endif
+
+#ifdef CONFIG_ZONE_ZRAM
+#define TEXTS_FOR_ZONES(xx) TEXT_FOR_DMA(xx) TEXT_FOR_DMA32(xx) xx "_normal", \
+					TEXT_FOR_HIGHMEM(xx) xx "_movable", \
+					TEXT_FOR_ZONE_ZRAM(xx)
+#else
 #define TEXTS_FOR_ZONES(xx) TEXT_FOR_DMA(xx) TEXT_FOR_DMA32(xx) xx "_normal", \
 					TEXT_FOR_HIGHMEM(xx) xx "_movable",
+#endif
 
 const char * const vmstat_text[] = {
 	/* enum zone_stat_item countes */
@@ -1046,9 +1060,6 @@ const char * const vmstat_text[] = {
 	"nr_mlock",
 	"nr_page_table_pages",
 	"nr_kernel_stack",
-#if IS_ENABLED(CONFIG_SHADOW_CALL_STACK)
-	"nr_shadow_call_stack_bytes",
-#endif
 	"nr_bounce",
 #if IS_ENABLED(CONFIG_ZSMALLOC)
 	"nr_zspages",
@@ -1094,7 +1105,7 @@ const char * const vmstat_text[] = {
 	"nr_vmscan_immediate_reclaim",
 	"nr_dirtied",
 	"nr_written",
-	"nr_kernel_misc_reclaimable",
+	"", /* nr_indirectly_reclaimable */
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
@@ -1675,6 +1686,10 @@ static int vmstat_show(struct seq_file *m, void *arg)
 {
 	unsigned long *l = arg;
 	unsigned long off = l - (unsigned long *)m->private;
+
+	/* Skip hidden vmstat items. */
+	if (*vmstat_text[off] == '\0')
+		return 0;
 
 	seq_puts(m, vmstat_text[off]);
 	seq_put_decimal_ull(m, " ", *l);

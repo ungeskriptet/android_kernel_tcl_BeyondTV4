@@ -13,6 +13,9 @@
 #ifdef CONFIG_ARM_ARCH_TIMER
 int arch_timer_arch_init(void);
 
+// RTK_patch: add timer dev register api
+void arch_timer_dev_register(int, int []);
+
 /*
  * These register accessors are marked inline so the compiler can
  * nicely work out which register we want, and chuck away the rest of

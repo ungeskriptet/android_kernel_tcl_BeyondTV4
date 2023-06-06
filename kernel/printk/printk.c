@@ -59,6 +59,10 @@
 #include "braille.h"
 #include "internal.h"
 
+#ifdef CONFIG_REALTEK_LOGBUF
+#include <rtd_logger.h>
+#endif
+
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
@@ -435,6 +439,9 @@ static u32 clear_idx;
 #define LOG_BUF_LEN_MAX (u32)(1 << 31)
 static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
 static char *log_buf = __log_buf;
+#ifdef CONFIG_REALTEK_LOGBUF
+char *native_logbuf_addr = __log_buf;
+#endif
 static u32 log_buf_len = __LOG_BUF_LEN;
 
 /* Return log buffer address */
@@ -577,6 +584,106 @@ static u32 truncate_msg(u16 *text_len, u16 *trunc_msg_len,
 	return msg_used_size(*text_len + *trunc_msg_len, 0, pad_len);
 }
 
+#ifdef CONFIG_REALTEK_LOGBUF
+
+__attribute__((weak)) int rtdlog_save_msg(EnumLogbufType type, const char * text,rtd_msg_header * header)
+{
+        return -1;
+}
+
+__attribute__((weak)) void rtd_logbuf_save_log( int level, const char *text, u16 text_len)
+{
+
+}
+void save_early_log(void)
+{
+    u32 end_idx = log_next_idx;
+    u64 end_seq = log_next_seq;
+    u32 now_idx = 0;
+    char * start_addr = log_buf;
+    char * log_addr = log_buf;
+    unsigned long bound_addr = (unsigned long)(start_addr + __LOG_BUF_LEN - sizeof(struct printk_log));
+    int i;
+    int valide_flag = 0;
+    struct printk_log * kernel_log_header;
+    rtd_msg_header tmp_header;
+
+    //get log from kernel raw logbuf
+        //check if start from index:0 can reach log_next_idx
+    for(i = 0; i <= end_seq; ++i)
+    {
+        kernel_log_header = (struct printk_log *)(start_addr + now_idx);
+        //check address
+        if((unsigned long)kernel_log_header > bound_addr)
+        {
+            break;
+        }
+        //update index
+        now_idx += kernel_log_header->len;
+        //check index
+        if(now_idx == end_idx)
+        {
+            valide_flag = 1;
+            break;
+        }
+    }
+    //check log valid flag
+    if(!valide_flag)
+    {
+        //pr_err("save early failed,log wrapped!\n");
+        return;
+    }
+    //save log
+    now_idx = 0;
+    for(i = 0;i <= end_seq;++i)
+    {
+        //check log wrap,if wrap drop remain logs
+        if(log_next_idx < end_idx)
+        {
+            return;
+        }
+        kernel_log_header = (struct printk_log *)(start_addr + now_idx);
+        //check address
+        if((unsigned long)kernel_log_header > bound_addr)
+        {
+            break;
+        }
+        //packet log
+        tmp_header.cpu_type = (u8)KERNEL_BUF;
+        tmp_header.cpu_core = 0xff;
+        tmp_header.pid = 0xffffffff;
+        tmp_header.tid = 0xffffffff;
+        tmp_header.timestamp = kernel_log_header->ts_nsec;
+        tmp_header.level = (u8)kernel_log_header->level;
+        tmp_header.text_len = (u32)kernel_log_header->text_len;
+        tmp_header.len = sizeof(tmp_header) + (u32)tmp_header.text_len;
+        tmp_header.module = 0;
+
+        memset(tmp_header.name,'#',sizeof(tmp_header.name));
+        snprintf(tmp_header.name,sizeof(tmp_header.name),"Unknown");
+        tmp_header.name[sizeof(tmp_header.name)-1] = '\0';
+
+        //save log to rtd logbuf
+        log_addr = (char *)kernel_log_header;
+        log_addr += sizeof(struct printk_log);
+        rtdlog_save_msg(KERNEL_BUF, log_addr, &tmp_header);
+        //update index
+        now_idx += kernel_log_header->len;
+        //check index
+        if(now_idx == end_idx)
+        {
+            break;
+        }
+    }
+}
+EXPORT_SYMBOL(save_early_log);
+#endif
+
+#ifdef CONFIG_ANDROID
+void get_local_time (unsigned int *hour,unsigned int *minute,unsigned int *second,unsigned int* millisecond);
+static int flag_logcat_timestamp __read_mostly =1;//default enable
+#endif
+
 /* insert record into the buffer, discard old ones, update heads */
 static int log_store(int facility, int level,
 		     enum log_flags flags, u64 ts_nsec,
@@ -584,11 +691,27 @@ static int log_store(int facility, int level,
 		     const char *text, u16 text_len)
 {
 	struct printk_log *msg;
-	u32 size, pad_len;
+	u32 size, pad_len, extra_len;
 	u16 trunc_msg_len = 0;
+	char extra[64] = {0};
+
+#ifdef CONFIG_ANDROID
+	static unsigned int hour=0,minute=0,second=0,millisecond=0;
+
+	if (flag_logcat_timestamp)
+	{
+	    get_local_time(&hour,&minute,&second,&millisecond);
+	    extra_len = sprintf(extra, "%02d:%02d:%02d.%03d (%d)-%04d\t", hour,minute,second,millisecond,
+                        smp_processor_id(), task_pid_nr(current)); // RTK_patch: print cpu id and task pid
+	}
+	else
+#endif
+	{
+	    extra_len = sprintf(extra, "(%d)-%04d\t", smp_processor_id(), task_pid_nr(current)); // RTK_patch: print cpu id and task pid
+	}
 
 	/* number of '\0' padding bytes to next message */
-	size = msg_used_size(text_len, dict_len, &pad_len);
+	size = msg_used_size(text_len + extra_len, dict_len, &pad_len);
 
 	if (log_make_free_space(size)) {
 		/* truncate the message if it is too long for empty buffer */
@@ -611,8 +734,9 @@ static int log_store(int facility, int level,
 
 	/* fill message */
 	msg = (struct printk_log *)(log_buf + log_next_idx);
-	memcpy(log_text(msg), text, text_len);
-	msg->text_len = text_len;
+	memcpy(log_text(msg), extra, extra_len);
+	memcpy(log_text(msg) + extra_len, text, text_len);
+	msg->text_len = text_len + extra_len;
 	if (trunc_msg_len) {
 		memcpy(log_text(msg) + text_len, trunc_msg, trunc_msg_len);
 		msg->text_len += trunc_msg_len;
@@ -632,6 +756,14 @@ static int log_store(int facility, int level,
 	/* insert message */
 	log_next_idx += msg->len;
 	log_next_seq++;
+
+#ifdef CONFIG_REALTEK_LOGBUF
+#ifdef CONFIG_ANDROID
+	rtd_logbuf_save_log(level, log_text(msg), msg->text_len);
+#else
+	rtd_logbuf_save_log(level, text, text_len);
+#endif
+#endif
 
 	return msg->text_len;
 }
@@ -3323,3 +3455,19 @@ void show_regs_print_info(const char *log_lvl)
 }
 
 #endif
+
+void print_stack_before_pm(void)
+{
+    static int str_count=0;
+    int saved_console_loglevel = console_loglevel;
+    int saved_console_may_schedule = console_may_schedule;
+    console_trylock();
+    console_may_schedule = 0;
+    console_loglevel = 8;
+    dump_stack();
+    str_count++;
+    printk("@@!!!!!enter pm_wakeup_emcu str_count=%d\n",str_count);
+    console_unlock();
+    console_may_schedule = saved_console_may_schedule;
+}
+

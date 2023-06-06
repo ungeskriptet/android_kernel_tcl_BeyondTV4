@@ -1,8 +1,12 @@
+#if 1   // workaround by kevin for MAC6RTANDN-690
+
+#include <asm/div64_443.h>
+
+#else
 /* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_ARM_DIV64
 #define __ASM_ARM_DIV64
 
-#include <linux/types.h>
 #include <asm/compiler.h>
 
 /*
@@ -127,5 +131,7 @@ static inline uint64_t __arch_xprod_64(uint64_t m, uint64_t n, bool bias)
 #include <asm-generic/div64.h>
 
 #endif
+
+#endif 
 
 #endif

@@ -1871,6 +1871,9 @@ struct xhci_hcd {
 /* Compliance Mode Timer Triggered every 2 seconds */
 #define COMP_MODE_RCVRY_MSECS 2000
 
+	/* RTK defiend */
+	unsigned long long irq_count;
+
 	/* platform-specific data -- must come last */
 	unsigned long		priv[0] __aligned(sizeof(s64));
 };
@@ -1880,6 +1883,7 @@ struct xhci_driver_overrides {
 	size_t extra_priv_size;
 	int (*reset)(struct usb_hcd *hcd);
 	int (*start)(struct usb_hcd *hcd);
+	unsigned int (*get_peer_port_location)(struct usb_hcd *hcd, int port1);
 };
 
 #define	XHCI_CFC_DELAY		10

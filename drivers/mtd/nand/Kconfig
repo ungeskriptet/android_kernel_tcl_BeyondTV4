@@ -563,4 +563,15 @@ config MTD_NAND_MTK
 	  Enables support for NAND controller on MTK SoCs.
 	  This controller is found on mt27xx, mt81xx, mt65xx SoCs.
 
+config MTD_NAND_RTK
+  bool "Realtek NAND Flash Driver"
+	depends on MTD_NAND	
+        help
+          This is Nand flash driver for Realtek.
+          
+config MTD_NAND_RTK_HW_SEMAPHORE
+  bool "Realtek NAND Flash Driver HW semaphore"
+	depends on MTD_NAND_RTK	
+        help
+          This is Nand flash driver HW semaphore protect for Ros & Linux kernel.   
 endif # MTD_NAND

@@ -17,6 +17,11 @@
  * Counters of the input lines (CTS, DSR, RI, CD) interrupts
  */
 
+enum {
+	RTICE_UART,
+	RTICE_USB2SERIAL,
+};
+
 struct async_icount {
 	__u32	cts, dsr, rng, dcd, tx, rx;
 	__u32	frame, parity, overrun, brk;

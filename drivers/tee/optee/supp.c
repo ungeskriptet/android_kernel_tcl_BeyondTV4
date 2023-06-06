@@ -11,6 +11,7 @@
  * GNU General Public License for more details.
  *
  */
+ 
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
@@ -42,6 +43,7 @@ void optee_supp_uninit(struct optee_supp *supp)
  *
  * Returns result of operation to be passed to secure world
  */
+#include <linux/freezer.h>
 u32 optee_supp_thrd_req(struct tee_context *ctx, u32 func, size_t num_params,
 			struct tee_param *param)
 {
@@ -78,6 +80,7 @@ u32 optee_supp_thrd_req(struct tee_context *ctx, u32 func, size_t num_params,
 
 	/* Let supplicant get the data */
 	complete(&supp->data_to_supp);
+	set_freezable();
 
 	/*
 	 * Wait for supplicant to process and return result, once we've

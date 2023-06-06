@@ -895,6 +895,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	union fpureg *fpr;
 	enum msa_2b_fmt df;
 	unsigned int wd;
+
 	origpc = (unsigned long)pc;
 	orig31 = regs->regs[31];
 
@@ -2339,7 +2340,7 @@ asmlinkage void do_ade(struct pt_regs *regs)
 			set_fs(seg);
 
 			return;
-	}
+		}
 
 		goto sigbus;
 	}

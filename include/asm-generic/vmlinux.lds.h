@@ -65,11 +65,11 @@
  * .data. We don't want to pull in .data..other sections, which Linux
  * has defined. Same for text and bss.
  */
-#if defined(CONFIG_LD_DEAD_CODE_DATA_ELIMINATION) || defined(CONFIG_LTO_CLANG)
+#ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 #define TEXT_MAIN .text .text.[0-9a-zA-Z_]*
 #define TEXT_CFI_MAIN .text.cfi .text.[0-9a-zA-Z_]*.cfi
-#define DATA_MAIN .data .data.[0-9a-zA-Z_]* .data..compoundliteral* .data..L*
-#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]* .bss..compoundliteral* .bss..L*
+#define DATA_MAIN .data .data.[0-9a-zA-Z_]*
+#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]*
 #else
 #define TEXT_MAIN .text
 #define TEXT_CFI_MAIN .text.cfi
@@ -208,10 +208,12 @@
 #define ACPI_PROBE_TABLE(name)
 #endif
 
+/* RTK_patch: extend dtb available size to 0x4000 */
 #define KERNEL_DTB()							\
 	STRUCT_ALIGN();							\
 	VMLINUX_SYMBOL(__dtb_start) = .;				\
 	KEEP(*(.dtb.init.rodata))					\
+	. = 0x4000 + VMLINUX_SYMBOL(__dtb_start);       		\
 	VMLINUX_SYMBOL(__dtb_end) = .;
 
 /*
@@ -434,10 +436,10 @@
 		VMLINUX_SYMBOL(__start___modver) = .;			\
 		KEEP(*(__modver))					\
 		VMLINUX_SYMBOL(__stop___modver) = .;			\
-		. = ALIGN((align));					\
-		VMLINUX_SYMBOL(__end_rodata) = .;			\
 	}								\
-	. = ALIGN((align));
+									\
+	. = ALIGN((align));						\
+	VMLINUX_SYMBOL(__end_rodata) = .;
 
 /* RODATA & RO_DATA provided for backward compatibility.
  * All archs are supposed to use RO_DATA() */

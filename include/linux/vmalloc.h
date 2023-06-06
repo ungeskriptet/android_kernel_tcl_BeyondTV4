@@ -20,6 +20,9 @@ struct notifier_block;		/* in notifier.h */
 #define VM_UNINITIALIZED	0x00000020	/* vm_struct is not fully initialized */
 #define VM_NO_GUARD		0x00000040      /* don't add guard page */
 #define VM_KASAN		0x00000080      /* has allocated kasan shadow memory */
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+#define VM_DVR		0x00000100	/* vm_struct is used by dvr_XXX */
+#endif
 /* bits [20..32] reserved for arch specific ioremap internals */
 
 /*
@@ -62,12 +65,10 @@ extern void vm_unmap_aliases(void);
 
 #ifdef CONFIG_MMU
 extern void __init vmalloc_init(void);
-extern unsigned long vmalloc_nr_pages(void);
 #else
 static inline void vmalloc_init(void)
 {
 }
-static inline unsigned long vmalloc_nr_pages(void) { return 0; }
 #endif
 
 extern void *vmalloc(unsigned long size);

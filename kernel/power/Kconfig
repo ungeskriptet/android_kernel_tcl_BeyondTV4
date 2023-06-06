@@ -312,3 +312,12 @@ config PM_GENERIC_DOMAINS_OF
 
 config CPU_PM
 	bool
+
+config PM_RESUME_TIME
+	bool "Power Management Resume Time Info Support"
+	depends on PM_DEBUG && SUSPEND
+        default y
+	---help---
+	This option enables AC on/DC on time value for bootcode/kernel stage
+        in the Power Management code. This is helpful when optimizing and
+        reporting resume time for developer.

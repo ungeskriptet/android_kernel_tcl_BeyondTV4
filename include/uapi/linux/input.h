@@ -18,7 +18,7 @@
 #endif
 
 #include "input-event-codes.h"
-
+#include "input-event-custom-codes.h"
 /*
  * The event structure itself
  */

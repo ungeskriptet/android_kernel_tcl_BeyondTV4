@@ -1025,6 +1025,37 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		if (err)
 			goto free_card;
 	} else {
+
+#ifdef CONFIG_MMC_RTKSD
+
+		/* for 287x/285x issue, it's need to switch bus width first then speed up. */
+		/*
+		 * Switch to wider bus (if supported).
+		 */
+		if ((host->caps & MMC_CAP_4_BIT_DATA) &&
+			(card->scr.bus_widths & SD_SCR_BUS_WIDTH_4)) {
+			err = mmc_app_set_bus_width(card, MMC_BUS_WIDTH_4);
+			if (err)
+				goto free_card;
+
+			mmc_set_bus_width(host, MMC_BUS_WIDTH_4);
+		}
+		/*
+		 * Attempt to change to high-speed (if supported)
+		 */
+		err = mmc_sd_switch_hs(card);
+		if (err > 0)
+			mmc_set_timing(card->host, MMC_TIMING_SD_HS);
+		else if (err)
+			goto free_card;
+
+		/*
+		 * Set bus speed.
+		 */
+		mmc_set_clock(host, mmc_sd_get_max_clock(card));
+
+#else
+
 		/*
 		 * Attempt to change to high-speed (if supported)
 		 */
@@ -1050,6 +1081,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 
 			mmc_set_bus_width(host, MMC_BUS_WIDTH_4);
 		}
+#endif
 	}
 
 	host->card = card;

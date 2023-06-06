@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * drivers/power/process.c - Functions for starting/stopping processes on 
+ * drivers/power/process.c - Functions for starting/stopping processes on
  *                           suspend transitions.
  *
  * Originally from swsusp.
@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task.h>
+#include <linux/sched/clock.h>
 #include <linux/syscalls.h>
 #include <linux/freezer.h>
 #include <linux/delay.h>
@@ -22,12 +23,13 @@
 #include <linux/kmod.h>
 #include <trace/events/power.h>
 #include <linux/cpuset.h>
+#include <linux/wakeup_reason.h>
 
 /*
  * Timeout for stopping processes
  */
-unsigned int __read_mostly freeze_timeout_msecs = 20 * MSEC_PER_SEC;
-
+unsigned int __read_mostly freeze_timeout_msecs = 5 * MSEC_PER_SEC;
+extern unsigned int pm_str_evnet_freeze_fail;
 static int try_to_freeze_tasks(bool user_only)
 {
 	struct task_struct *g, *p;
@@ -38,6 +40,9 @@ static int try_to_freeze_tasks(bool user_only)
 	unsigned int elapsed_msecs;
 	bool wakeup = false;
 	int sleep_usecs = USEC_PER_MSEC;
+#ifdef CONFIG_PM_SLEEP
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
+#endif
 
 	start = ktime_get_boottime();
 
@@ -67,6 +72,11 @@ static int try_to_freeze_tasks(bool user_only)
 			break;
 
 		if (pm_wakeup_pending()) {
+#ifdef CONFIG_PM_SLEEP
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
+#endif
 			wakeup = true;
 			break;
 		}
@@ -91,6 +101,8 @@ static int try_to_freeze_tasks(bool user_only)
 		       elapsed_msecs / 1000, elapsed_msecs % 1000);
 	} else if (todo) {
 		pr_cont("\n");
+		console_loglevel = 7;
+		pm_str_evnet_freeze_fail = 1;/*ANDROIDTV-2742*/
 		pr_err("Freezing of tasks failed after %d.%03d seconds"
 		       " (%d tasks refusing to freeze, wq_busy=%d):\n",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000,
@@ -187,6 +199,7 @@ int freeze_kernel_threads(void)
 	return error;
 }
 
+//extern void str_event_after_resume_operation(suspend_state_t state);
 void thaw_processes(void)
 {
 	struct task_struct *g, *p;
@@ -200,6 +213,8 @@ void thaw_processes(void)
 
 	oom_killer_enable();
 
+	/* M6PRTANPM-106, Android P support wakeup source, need process freeze fail case. */
+	//str_event_after_resume_operation(PM_SUSPEND_MEM);
 	pr_info("Restarting tasks ... ");
 
 	__usermodehelper_set_disable_depth(UMH_FREEZING);
@@ -223,6 +238,10 @@ void thaw_processes(void)
 	schedule();
 	pr_cont("done.\n");
 	trace_suspend_resume(TPS("thaw_processes"), 0, false);
+
+#ifdef CONFIG_PM_RESUME_TIME
+        pm_resume_set_endtime(POWER_ON_DC, PM_STAGE_KERNEL,sched_clock());
+#endif
 }
 
 void thaw_kernel_threads(void)

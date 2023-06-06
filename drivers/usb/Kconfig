@@ -37,11 +37,29 @@ menuconfig USB_SUPPORT
 
 if USB_SUPPORT
 
+# many non-PCI SOC chips embed OHCI
+config USB_ARCH_HAS_OHCI
+	boolean "OHCI support"
+	default n
+
+# some non-PCI hcds implement EHCI
+config USB_ARCH_HAS_EHCI
+	boolean "EHCI support"
+	default n
+
+# some non-PCI HCDs implement xHCI
+config USB_ARCH_HAS_XHCI
+	boolean "XHCI support"
+	default n
+
 config USB_COMMON
 	tristate
 
 config USB_ARCH_HAS_HCD
-	def_bool y
+	boolean
+	default y if USB_ARCH_HAS_OHCI
+	default y if USB_ARCH_HAS_EHCI
+	default y if USB_ARCH_HAS_XHCI
 
 config USB
 	tristate "Support for Host-side USB"

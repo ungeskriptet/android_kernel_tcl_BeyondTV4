@@ -211,8 +211,12 @@ void migrate_to_reboot_cpu(void)
  *	Shutdown everything and perform a clean reboot.
  *	This is not safe to call in interrupt context.
  */
+extern void parent_info_dump_and_store(char * buf);
+
 void kernel_restart(char *cmd)
 {
+	parent_info_dump_and_store(NULL);
+
 	kernel_restart_prepare(cmd);
 	migrate_to_reboot_cpu();
 	syscore_shutdown();
@@ -268,7 +272,8 @@ void kernel_power_off(void)
 EXPORT_SYMBOL_GPL(kernel_power_off);
 
 static DEFINE_MUTEX(reboot_mutex);
-
+int reboot_perm = 1;
+core_param(reboot_perm, reboot_perm, int, 0644);
 /*
  * Reboot system call: for obvious reasons only root may call it,
  * and even root needs to set up some magic numbers in the registers
@@ -284,6 +289,26 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	char buffer[256];
 	int ret = 0;
 
+	if (reboot_perm == 0) {
+		printk(KERN_ERR "MAYDAY! MAYDAY! reboot request coming(%d, %pT)... \n",
+		       task_pid_nr(current), current);
+
+#ifdef CONFIG_RTK_KDRV_WATCHDOG
+		{
+			extern int watchdog_enable (unsigned char On);
+			extern int kill_watchdog (void);
+			
+			kill_watchdog ();
+			watchdog_enable(0);
+		}
+#endif
+		/* sync fs and IO, to save log completely */
+		sys_sync();
+
+		asm volatile ("1: b 1b \n");
+		return -EPERM;
+	}
+	
 	/* We only trust the superuser with rebooting the system. */
 	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
 		return -EPERM;

@@ -291,6 +291,7 @@ GIC_VX_ACCESSOR_RW_INTR_REG(32, 0x100, 0x4, eic_shadow_set)
  * Enumerates interrupts provided by the GIC that are local to a VP.
  */
 enum mips_gic_local_interrupt {
+#ifndef CONFIG_TAROKO_GIC
 	GIC_LOCAL_INT_WD,
 	GIC_LOCAL_INT_COMPARE,
 	GIC_LOCAL_INT_TIMER,
@@ -298,6 +299,7 @@ enum mips_gic_local_interrupt {
 	GIC_LOCAL_INT_SWINT0,
 	GIC_LOCAL_INT_SWINT1,
 	GIC_LOCAL_INT_FDC,
+#endif
 	GIC_NUM_LOCAL_INTRS
 };
 

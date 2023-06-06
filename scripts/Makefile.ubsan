@@ -1,4 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0
+
+#default UBSAN disable for all subtree.
+#and build flow using 'override' to enable which ones interested
+UBSAN_SANITIZE = n
+export UBSAN_SANITIZE
+
+-include ubsan_list.mk
+
 ifdef CONFIG_UBSAN
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=shift)
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=integer-divide-by-zero)

@@ -31,6 +31,8 @@
 #include <linux/usb.h>
 #include <linux/usb/quirks.h>
 #include <linux/usb/hcd.h>
+//#include <rtk_kdriver/usb/usb_platform.h>
+#include "rtk_kdriver/usb/usb_platform.h"
 
 #include "usb.h"
 
@@ -1022,6 +1024,7 @@ void usb_forced_unbind_intf(struct usb_interface *intf)
 	/* Mark the interface for later rebinding */
 	intf->needs_binding = 1;
 }
+EXPORT_SYMBOL_GPL(usb_forced_unbind_intf);
 
 /*
  * Unbind drivers for @udev's marked interfaces.  These interfaces have
@@ -1264,6 +1267,38 @@ done:
 	return status;
 }
 
+#if 1 /* RTK-hacked: we add resume_complete for each interface driver */
+static int usb_resume_interface_complete(struct usb_device *udev,
+		struct usb_interface *intf)
+{
+	struct usb_driver	*driver;
+	int			status = 0;
+
+	/* Make sure usb device is attached */
+	if (udev->state == USB_STATE_NOTATTACHED)
+		goto done;
+
+	/* check current state of interface */
+	if (intf->condition == USB_INTERFACE_UNBINDING ||
+		intf->condition == USB_INTERFACE_UNBOUND ||
+		intf->needs_binding)
+		goto done;
+
+	driver = to_usb_driver(intf->dev.driver);
+	if (driver && driver->complete) {
+		status = driver->complete(intf);
+		if (status)
+			dev_err(&intf->dev, "resume complete error %d\n", status);
+	}
+
+done:
+	dev_vdbg(&intf->dev, "%s: status %d\n", __func__, status);
+
+	/* Later we will unbind the driver and/or reprobe, if necessary */
+	return status;
+}
+#endif
+
 /**
  * usb_suspend_both - suspend a USB device and its interfaces
  * @udev: the usb_device to suspend
@@ -1307,6 +1342,22 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 		for (i = n - 1; i >= 0; --i) {
 			intf = udev->actconfig->interface[i];
 			status = usb_suspend_interface(udev, intf, msg);
+
+#ifdef CONFIG_CUSTOMER_TV030
+			/* TCL2851-3708 - MTK WiFi/BT dongle cannot suspend fail */
+			if (is_MTK_usb_wifi_bt_dev(udev)) {
+				if (status != 0) {
+					dev_err(&udev->dev, "Failed to suspend MTK Wifi or BT interface, error:%d\n",
+							status);
+					/* toggle WIFI_ON to reset device and let hub_driver deal with port event */
+					if (!usb_set_MTK_wifi_off_on(0)) {
+						mdelay(150);
+						usb_set_MTK_wifi_off_on(1);
+					}
+					break;
+				}
+			}
+#endif
 
 			/* Ignore errors during system sleep transitions */
 			if (!PMSG_IS_AUTO(msg))
@@ -1352,7 +1403,11 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 			msg.event ^= (PM_EVENT_SUSPEND | PM_EVENT_RESUME);
 			while (++i < n) {
 				intf = udev->actconfig->interface[i];
-				usb_resume_interface(udev, intf, msg, 0);
+#ifdef CONFIG_CUSTOMER_TV030
+				/* TCL2851-3708 - Dont resume MTK WiFi/BT interfaces if one of them suspend fail. */
+				if (!is_MTK_usb_wifi_bt_dev(udev))
+#endif
+					usb_resume_interface(udev, intf, msg, 0);
 			}
 		}
 
@@ -1471,7 +1526,18 @@ int usb_suspend(struct device *dev, pm_message_t msg)
 int usb_resume_complete(struct device *dev)
 {
 	struct usb_device *udev = to_usb_device(dev);
+#if 1 /* RTK-hacked: we add resume_complete for each interface driver */
+	struct usb_interface *intf;
+	int i = 0;
 
+	/*  completion callback for interface driver */
+	if (udev->actconfig) {
+		for (i = 0; i < udev->actconfig->desc.bNumInterfaces; i++) {
+			intf = udev->actconfig->interface[i];
+			usb_resume_interface_complete(udev, intf);
+		}
+	}
+#endif
 	/* For PM complete calls, all we do is rebind interfaces
 	 * whose needs_binding flag is set
 	 */

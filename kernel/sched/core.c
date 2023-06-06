@@ -18,14 +18,12 @@
 #include <linux/rcupdate_wait.h>
 
 #include <linux/blkdev.h>
-#include <linux/kcov.h>
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
 #include <linux/module.h>
 #include <linux/nmi.h>
 #include <linux/prefetch.h>
 #include <linux/profile.h>
-#include <linux/scs.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 
@@ -961,10 +959,8 @@ static struct rq *move_queued_task(struct rq *rq, struct rq_flags *rf,
 
 	p->on_rq = TASK_ON_RQ_MIGRATING;
 	dequeue_task(rq, p, DEQUEUE_NOCLOCK);
-	rq_unpin_lock(rq, rf);
-	double_lock_balance(rq, cpu_rq(new_cpu));
 	set_task_cpu(p, new_cpu);
-	double_rq_unlock(cpu_rq(new_cpu), rq);
+	rq_unlock(rq, rf);
 
 	rq = cpu_rq(new_cpu);
 
@@ -2658,7 +2654,6 @@ static inline void
 prepare_task_switch(struct rq *rq, struct task_struct *prev,
 		    struct task_struct *next)
 {
-	kcov_prepare_switch(prev);
 	sched_info_switch(rq, prev, next);
 	perf_event_task_sched_out(prev, next);
 	fire_sched_out_preempt_notifiers(prev, next);
@@ -2736,7 +2731,6 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	smp_mb__after_unlock_lock();
 	finish_lock_switch(rq, prev);
 	finish_arch_post_lock_switch();
-	kcov_finish_switch(current);
 
 	fire_sched_in_preempt_notifiers(current);
 	if (mm)
@@ -2866,6 +2860,25 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	rq_unpin_lock(rq, rf);
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
+
+#ifdef CONFIG_REALTEK_SCHED_LOG
+	if (sched_log_flag & 0x1) {
+		int cpu;
+		extern spinlock_t sched_log_lock;
+
+		cpu = smp_processor_id();
+		spin_lock(&sched_log_lock);
+		if (test_ti_thread_flag(task_thread_info(prev), TIF_IS_PREEMPT)) {
+			log_sched(cpu, next->pid, TYPE_PREEMPT);
+		} else if (prev->state) {
+			log_sched(cpu, next->pid, TYPE_BLOCK);
+		} else {
+			log_sched(cpu, next->pid, TYPE_YIELD);
+		}
+		spin_unlock(&sched_log_lock);
+	}
+	clear_ti_thread_flag(task_thread_info(prev), TIF_IS_PREEMPT);
+#endif // CONFIG_REALTEK_SCHED_LOG
 
 	/* Here we just switch the register state and the stack. */
 	switch_to(prev, next, prev);
@@ -3391,6 +3404,10 @@ static void __sched notrace __schedule(bool preempt)
 
 	/* Promote REQ to ACT */
 	rq->clock_update_flags <<= 1;
+#ifdef CONFIG_REALTEK_SCHED_LOG
+	if (test_tsk_need_resched(prev))
+		set_ti_thread_flag(task_thread_info(prev), TIF_IS_PREEMPT);
+#endif // CONFIG_REALTEK_SCHED_LOG
 	update_rq_clock(rq);
 
 	switch_count = &prev->nivcsw;
@@ -3458,6 +3475,9 @@ static void __sched notrace __schedule(bool preempt)
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next, &rf);
 	} else {
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		clear_ti_thread_flag(task_thread_info(prev), TIF_IS_PREEMPT);
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		rq->clock_update_flags &= ~(RQCF_ACT_SKIP|RQCF_REQ_SKIP);
 		rq_unlock_irq(rq, &rf);
 	}
@@ -4894,7 +4914,9 @@ SYSCALL_DEFINE0(sched_yield)
 	struct rq_flags rf;
 	struct rq *rq;
 
-	rq = this_rq_lock_irq(&rf);
+	local_irq_disable();
+	rq = this_rq();
+	rq_lock(rq, &rf);
 
 	schedstat_inc(rq->yld_count);
 	current->sched_class->yield_task(rq);
@@ -5325,7 +5347,6 @@ void init_idle(struct task_struct *idle, int cpu)
 	idle->se.exec_start = sched_clock();
 	idle->flags |= PF_IDLE;
 
-	scs_task_reset(idle);
 	kasan_unpoison_task_stack(idle);
 
 #ifdef CONFIG_SMP
@@ -6853,3 +6874,85 @@ const u32 sched_prio_to_wmult[40] = {
  /*  10 */  39045157,  49367440,  61356676,  76695844,  95443717,
  /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
 };
+#ifdef  CONFIG_REALTEK_SCHED_LOG
+#include <mach/system.h>
+#include <mach/timex.h>
+
+extern unsigned int            *sched_log_buf_head;
+extern unsigned int            *sched_log_buf_tail;
+extern unsigned int            *sched_log_buf_ptr;
+extern unsigned int            sched_log_flag;
+extern unsigned int            sched_log_time_scale;
+extern unsigned int            sched_log_start_time;
+
+unsigned int log_get_time_stamp(void)
+{
+	unsigned int time_stamp = 0;
+
+	/* Read HW Timer Register */
+	time_stamp = timer_get_value(SYSTEM_TIMER);
+	if (time_stamp > sched_log_start_time)
+		time_stamp -= sched_log_start_time;
+	else
+		time_stamp += (0xFFFFFFFF - sched_log_start_time);
+
+	return time_stamp;
+}
+
+void log_sched(int cpu, int pid, int type)
+{
+	unsigned int count = 0;
+
+	count = log_get_time_stamp();
+
+	*sched_log_buf_ptr = count;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+
+	*sched_log_buf_ptr = type | (cpu << 24) | pid;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+}
+
+void log_intr_enter(int cpu, int irq)
+{
+	unsigned int count = 0;
+
+	count = log_get_time_stamp();
+
+	*sched_log_buf_ptr = count;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+
+	*sched_log_buf_ptr = 0x10000000 | (cpu << 24) | irq;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+}
+
+void log_intr_exit(int cpu, int irq)
+{
+	unsigned int count = 0;
+
+	count = log_get_time_stamp();
+
+	*sched_log_buf_ptr = count;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+
+	*sched_log_buf_ptr = (cpu << 24) | irq;
+	if (++sched_log_buf_ptr == sched_log_buf_tail) {
+		sched_log_buf_ptr = sched_log_buf_head;
+		sched_log_flag |= 2;
+	}
+}
+#endif // CONFIG_REALTEK_SCHED_LOG

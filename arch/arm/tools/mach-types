@@ -47,6 +47,7 @@ simpad			SA1100_SIMPAD		SIMPAD			87
 lubbock			ARCH_LUBBOCK		LUBBOCK			89
 clep7212		ARCH_CLEP7212		CLEP7212		91
 shannon			SA1100_SHANNON		SHANNON			97
+sheipa			ARCH_SHEIPA		SHEIPA			100
 consus			SA1100_CONSUS		CONSUS			105
 aaed2000		ARCH_AAED2000		AAED2000		106
 cdb89712		ARCH_CDB89712		CDB89712		107
@@ -598,3 +599,8 @@ missouri		MACH_MISSOURI		MISSOURI		5105
 remarkable		MACH_REMARKABLE		REMARKABLE		5106
 fa0113			MACH_FA0113		FA0113			5107
 innova_statnettawm	MACH_INNOVA_STATNETTAWM	INNOVA_STATNETTAWM	5108
+rtk287x                 MACH_RTK287X    	RTK287X                 5009
+rtk285x                 MACH_RTK285X    	RTK285X                 5010
+rtk287o                 MACH_RTK287O    	RTK287O                 5011
+rtk285o                 MACH_RTK285O            RTK285O                 5012
+rtk288o                 MACH_RTK288O            RTK288O                 5013

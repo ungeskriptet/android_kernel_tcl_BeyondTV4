@@ -114,6 +114,7 @@ int update_persistent_clock(struct timespec now)
 	return rtc_mips_set_mmss(now.tv_sec);
 }
 
+#ifndef CONFIG_CPU_RLX
 static int null_perf_irq(void)
 {
 	return 0;
@@ -122,11 +123,12 @@ static int null_perf_irq(void)
 int (*perf_irq)(void) = null_perf_irq;
 
 EXPORT_SYMBOL(perf_irq);
+#endif
 
 /*
  * time_init() - it does the following things.
  *
- * 1) plat_time_init() -
+ * 1) bsp_time_init() -
  *	a) (optional) set up RTC routines,
  *	b) (optional) calibrate and set the mips_hpt_frequency
  *	    (only needed if you intended to use cpu counter as timer interrupt

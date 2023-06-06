@@ -342,6 +342,11 @@ struct mtd_info {
 	 */
 	int (*_get_device) (struct mtd_info *mtd);
 	void (*_put_device) (struct mtd_info *mtd);
+	/*For access bootcode area*/
+	int (*_erase_bootcode_area)(struct mtd_info *mtd, struct erase_info *instr);
+	int (*_write_bootcode_area)(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char * buf, const u_char *oob_buf, unsigned int block_tag);
+	int (*_read_bootcode_area)(struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf, u_char *oob_buf);
+	int (*_write_profile)(struct mtd_info *mtd);
 
 	struct notifier_block reboot_notifier;  /* default mode before reboot */
 

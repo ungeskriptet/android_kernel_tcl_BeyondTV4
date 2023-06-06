@@ -36,6 +36,10 @@ struct cramfs_sb_info {
 	unsigned long blocks;
 	unsigned long files;
 	unsigned long flags;
+#ifdef CONFIG_CRAMFS_TV043
+        unsigned long uid;
+        unsigned long gid;
+#endif
 };
 
 static inline struct cramfs_sb_info *CRAMFS_SB(struct super_block *sb)
@@ -109,8 +113,24 @@ static struct inode *get_cramfs_inode(struct super_block *sb,
 	}
 
 	inode->i_mode = cramfs_inode->mode;
+#ifndef CONFIG_CRAMFS_TV043
 	i_uid_write(inode, cramfs_inode->uid);
 	i_gid_write(inode, cramfs_inode->gid);
+#else
+        /* Unless the file is a special file, it should not writable. */
+        if (!S_ISBLK(inode->i_mode) && !S_ISCHR(inode->i_mode) && !S_ISFIFO(inode->i_mode) && !S_ISSOCK(inode->i_mode))
+                inode->i_mode &= ~S_IWUGO;
+
+        if(CRAMFS_SB(sb)->uid == 0)
+                i_uid_write(inode, cramfs_inode->uid);
+        else
+                i_uid_write(inode, CRAMFS_SB(sb)->uid);
+
+        if(CRAMFS_SB(sb)->gid == 0)
+                i_gid_write(inode, cramfs_inode->gid);
+        else
+                 i_gid_write(inode, CRAMFS_SB(sb)->gid);
+#endif
 
 	/* if the lower 2 bits are zero, the inode contains data */
 	if (!(inode->i_ino & 3)) {
@@ -262,6 +282,10 @@ static int cramfs_fill_super(struct super_block *sb, void *data, int silent)
 	unsigned long root_offset;
 	struct cramfs_sb_info *sbi;
 	struct inode *root;
+#ifdef CONFIG_CRAMFS_TV043
+        const char* param =  NULL;
+        const char *p = NULL;
+#endif
 
 	sb->s_flags |= MS_RDONLY;
 
@@ -337,6 +361,19 @@ static int cramfs_fill_super(struct super_block *sb, void *data, int silent)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_CRAMFS_TV043
+        /* Did the mounter specify an overriding uid/gid for all files? */
+        if (data) {
+                param = (const char*) data;
+                p = strstr(param, "uid=");
+                if (p)
+                        CRAMFS_SB(sb)->uid = simple_strtoul(p+4, NULL, 0);
+                p = strstr(param, "gid=");
+                if (p)
+                        CRAMFS_SB(sb)->gid = simple_strtoul(p+4, NULL, 0);
+        }
+ #endif
+ 
 	/* Set it all up.. */
 	sb->s_op = &cramfs_ops;
 	root = get_cramfs_inode(sb, &super.root, 0);

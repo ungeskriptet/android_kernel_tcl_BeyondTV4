@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: GPL-2.0
 ifeq ($(CONFIG_OF),y)
-
 dtb-$(CONFIG_ARCH_ALPINE) += \
 	alpine-db.dtb
 dtb-$(CONFIG_MACH_ARTPEC6) += \
 	artpec6-devboard.dtb
 dtb-$(CONFIG_MACH_ASM9260) += \
 	alphascale-asm9260-devkit.dtb
+
+# include board specific dts makefile
+ifeq ($(CONFIG_ARCH_SHEIPA),y)
+-include $(srctree)/arch/arm/bsp/Makefile.dts
+endif
+
 # Keep at91 dtb files sorted alphabetically for each SoC
 dtb-$(CONFIG_SOC_AT91RM9200) += \
 	at91rm9200ek.dtb \
@@ -1069,6 +1074,30 @@ dtb-$(CONFIG_ARCH_ZX) += zx296702-ad1.dtb
 dtb-$(CONFIG_ARCH_ASPEED) += aspeed-bmc-opp-palmetto.dtb \
 	aspeed-bmc-opp-romulus.dtb \
 	aspeed-ast2500-evb.dtb
+
+# RTK_patch: add our machine dts
+dtb-$(CONFIG_ARCH_RTK285X) += rtd285x.dtb
+dtb-$(CONFIG_ARCH_RTK287X) += rtd287x.dtb
+ifeq ($(CONFIG_ANDROID_VERSION),9)
+dtb-$(CONFIG_ARCH_RTK285O) += rtd285o_P.dtb
+else
+dtb-$(CONFIG_ARCH_RTK285O) += rtd285o.dtb
+endif
+ifeq ($(CONFIG_ANDROID_VERSION),9)
+dtb-$(CONFIG_ARCH_RTK287O) += rtd287o_P.dtb
+else
+dtb-$(CONFIG_ARCH_RTK287O) += rtd287o.dtb
+endif
+ifeq ($(CONFIG_ANDROID_VERSION),9)
+dtb-$(CONFIG_ARCH_RTK288O) += rtd288o_P.dtb
+else
+dtb-$(CONFIG_ARCH_RTK288O) += rtd288o.dtb
+endif
+ifeq ($(CONFIG_ANDROID_VERSION),10)
+dtb-$(CONFIG_ARCH_RTK288O) += rtd288o_Q.dtb
+else
+dtb-$(CONFIG_ARCH_RTK288O) += rtd288o.dtb
+endif
 endif
 
 dtstree		:= $(srctree)/$(src)
@@ -1083,6 +1112,13 @@ endif
 
 targets += dtbs dtbs_install
 targets += $(DTB_LIST)
+
+# RTK_patch: add target embedded_dtb
+embedded_dtb: $(addprefix $(obj)/, $(dtb-y))
+	@echo "Marcus All done"
+#ifneq ($(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE_NAMES_EXT),)
+	$(Q)cp $(obj)/$(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE_NAMES_EXT) embedded_dtb
+#endif
 
 always		:= $(DTB_LIST)
 clean-files	:= *.dtb

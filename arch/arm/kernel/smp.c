@@ -73,6 +73,7 @@ enum ipi_msg_type {
 	IPI_TIMER,
 	IPI_RESCHEDULE,
 	IPI_CALL_FUNC,
+	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
 	IPI_IRQ_WORK,
 	IPI_COMPLETION,
@@ -520,9 +521,11 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	S(IPI_TIMER, "Timer broadcast interrupts"),
 	S(IPI_RESCHEDULE, "Rescheduling interrupts"),
 	S(IPI_CALL_FUNC, "Function call interrupts"),
+	S(IPI_CALL_FUNC_SINGLE, "Single function call interrupts"),
 	S(IPI_CPU_STOP, "CPU stop interrupts"),
 	S(IPI_IRQ_WORK, "IRQ work interrupts"),
 	S(IPI_COMPLETION, "completion interrupts"),
+	S(IPI_CPU_BACKTRACE, "cpu backtrace interrupts"),
 };
 
 static void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
@@ -637,6 +640,9 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
+#ifdef CONFIG_REALTEK_SCHED_LOG
+	extern spinlock_t sched_log_lock;
+#endif
 
 	if ((unsigned)ipinr < NR_IPI) {
 		trace_ipi_entry_rcuidle(ipi_types[ipinr]);
@@ -645,43 +651,160 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	switch (ipinr) {
 	case IPI_WAKEUP:
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
+
 		break;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
 	case IPI_TIMER:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		tick_receive_broadcast();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 #endif
 
 	case IPI_RESCHEDULE:
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		scheduler_ipi();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		break;
 
 	case IPI_CALL_FUNC:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		generic_smp_call_function_interrupt();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
+		irq_exit();
+		break;
+
+	case IPI_CALL_FUNC_SINGLE:
+		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
+		generic_smp_call_function_single_interrupt();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 
 	case IPI_CPU_STOP:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		ipi_cpu_stop(cpu);
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 
 #ifdef CONFIG_IRQ_WORK
 	case IPI_IRQ_WORK:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_work_run();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 #endif
 
 	case IPI_COMPLETION:
 		irq_enter();
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_enter(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		ipi_complete(cpu);
+	#ifdef CONFIG_REALTEK_SCHED_LOG
+		if (sched_log_flag & 0x1) {
+			spin_lock(&sched_log_lock);
+			log_intr_exit(cpu, ipinr);
+			spin_unlock(&sched_log_lock);
+		}
+	#endif // CONFIG_REALTEK_SCHED_LOG
 		irq_exit();
 		break;
 

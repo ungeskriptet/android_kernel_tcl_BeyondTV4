@@ -17,7 +17,8 @@
 
 #include <linux/types.h>
 
-#define COMMAND_LINE_SIZE 1024
+/*RTK_patch: MA6PBU-1407, extend size for avb parameter*/
+#define COMMAND_LINE_SIZE (1024 + 700)
 
 /* The list ends with an ATAG_NONE node. */
 #define ATAG_NONE	0x00000000

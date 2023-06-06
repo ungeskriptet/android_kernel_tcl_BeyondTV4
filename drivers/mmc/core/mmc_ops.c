@@ -614,6 +614,9 @@ int mmc_send_tuning(struct mmc_host *host, u32 opcode, int *cmd_error)
 	const u8 *tuning_block_pattern;
 	int size, err = 0;
 	u8 *data_buf;
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+	bool hs400 = false;
+#endif
 
 	if (ios->bus_width == MMC_BUS_WIDTH_8) {
 		tuning_block_pattern = tuning_blk_pattern_8bit;
@@ -624,6 +627,12 @@ int mmc_send_tuning(struct mmc_host *host, u32 opcode, int *cmd_error)
 	} else
 		return -EINVAL;
 
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+	if(opcode == MMC_READ_SINGLE_BLOCK){
+		hs400 = true;
+		size = 512;
+	}
+#endif
 	data_buf = kzalloc(size, GFP_KERNEL);
 	if (!data_buf)
 		return -ENOMEM;
@@ -664,8 +673,19 @@ int mmc_send_tuning(struct mmc_host *host, u32 opcode, int *cmd_error)
 		goto out;
 	}
 
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+	if(!hs400)
+	{
+		if (memcmp(data_buf, tuning_block_pattern, size))
+			err = -EIO;
+	}else{
+		/* not cmd21, skip partten compare  */
+		//pr_alert("%s(%d)non cmd21, skip partten compare\n",__func__,__LINE__);
+	}
+#else
 	if (memcmp(data_buf, tuning_block_pattern, size))
 		err = -EIO;
+#endif
 
 out:
 	kfree(data_buf);

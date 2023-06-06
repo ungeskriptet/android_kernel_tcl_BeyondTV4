@@ -16,12 +16,6 @@ config DEFCONFIG_LIST
 	default "$ARCH_DEFCONFIG"
 	default "arch/$ARCH/defconfig"
 
-config TOOLS_SUPPORT_RELR
-	bool "Declare tool support for RELR"
-	# Prevent this from being enabled by default in allyesconfig or
-	# allmodconfig builds.
-	depends on !COMPILE_TEST
-
 config CONSTRUCTORS
 	bool
 	depends on !UML
@@ -229,7 +223,7 @@ config DEFAULT_HOSTNAME
 config SWAP
 	bool "Support for paging of anonymous memory (swap)"
 	depends on MMU && BLOCK
-	default y
+	default n
 	help
 	  This option allows you to choose whether you want to have support
 	  for so called swap devices or swap files in your kernel that are
@@ -315,6 +309,7 @@ config USELIB
 config AUDIT
 	bool "Auditing support"
 	depends on NET
+	default n
 	help
 	  Enable auditing infrastructure that can be used with another
 	  kernel subsystem, such as SELinux (which requires this for
@@ -418,6 +413,7 @@ config SCHED_WALT
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
 	depends on MULTIUSER
+	default n
 	help
 	  If you say Y here, a user level program will be able to instruct the
 	  kernel (via a special system call) to write process accounting
@@ -551,15 +547,6 @@ config IKCONFIG_PROC
 	---help---
 	  This option enables access to the kernel configuration file
 	  through /proc/config.gz.
-
-config IKHEADERS
-	tristate "Enable kernel headers through /sys/kernel/kheaders.tar.xz"
-	depends on SYSFS
-	help
-	  This option enables access to the in-kernel headers that are generated during
-	  the build process. These can be used to build eBPF tracing programs,
-	  or similar programs.  If you build the headers as a module, a module called
-	  kheaders.ko is built which can be loaded on-demand to get access to headers.
 
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"
@@ -831,6 +818,7 @@ config FAIR_GROUP_SCHED
 config CFS_BANDWIDTH
 	bool "CPU bandwidth provisioning for FAIR_GROUP_SCHED"
 	depends on FAIR_GROUP_SCHED
+	depends on !SCHED_WALT
 	default n
 	help
 	  This option allows users to define CPU bandwidth rates (limits) for
@@ -1186,6 +1174,9 @@ endchoice
 config SYSCTL
 	bool
 
+config ANON_INODES
+	bool
+
 config HAVE_UID16
 	bool
 
@@ -1377,7 +1368,7 @@ config BUG
 
 config ELF_CORE
 	depends on COREDUMP
-	default y
+	default n
 	bool "Enable ELF core dumps" if EXPERT
 	help
 	  Enable support for generating core dumps. Disabling saves about 4k.
@@ -1387,13 +1378,13 @@ config PCSPKR_PLATFORM
 	bool "Enable PC-Speaker support" if EXPERT
 	depends on HAVE_PCSPKR_PLATFORM
 	select I8253_LOCK
-	default y
+	default n
 	help
           This option allows to disable the internal PC-Speaker
           support, saving some memory.
 
 config BASE_FULL
-	default y
+	default n
 	bool "Enable full-sized data structures for core" if EXPERT
 	help
 	  Disabling this option reduces the size of miscellaneous core
@@ -1425,12 +1416,14 @@ config HAVE_FUTEX_CMPXCHG
 config EPOLL
 	bool "Enable eventpoll support" if EXPERT
 	default y
+	select ANON_INODES
 	help
 	  Disabling this option will cause the kernel to be built without
 	  support for epoll family of system calls.
 
 config SIGNALFD
 	bool "Enable signalfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the signalfd() system call that allows to receive signals
@@ -1440,6 +1433,7 @@ config SIGNALFD
 
 config TIMERFD
 	bool "Enable timerfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the timerfd() system call that allows to receive timer
@@ -1449,6 +1443,7 @@ config TIMERFD
 
 config EVENTFD
 	bool "Enable eventfd() system call" if EXPERT
+	select ANON_INODES
 	default y
 	help
 	  Enable the eventfd() system call that allows to receive both
@@ -1459,6 +1454,7 @@ config EVENTFD
 # syscall, maps, verifier
 config BPF_SYSCALL
 	bool "Enable bpf() system call"
+	select ANON_INODES
 	select BPF
 	default n
 	help
@@ -1503,13 +1499,14 @@ config ADVISE_SYSCALLS
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"
+	select ANON_INODES
 	depends on MMU
 	help
 	  Enable the userfaultfd() system call that allows to intercept and
 	  handle page faults in userland.
 
 config PCI_QUIRKS
-	default y
+	default n
 	bool "Enable PCI quirk workarounds" if EXPERT
 	depends on PCI
 	help
@@ -1561,6 +1558,7 @@ config PERF_EVENTS
 	bool "Kernel performance events and counters"
 	default y if PROFILING
 	depends on HAVE_PERF_EVENTS
+	select ANON_INODES
 	select IRQ_WORK
 	select SRCU
 	help
@@ -1611,7 +1609,7 @@ config VM_EVENT_COUNTERS
 	  if VM event counters are disabled.
 
 config SLUB_DEBUG
-	default y
+	default n
 	bool "Enable SLUB debugging support" if EXPERT
 	depends on SLUB && SYSFS
 	help

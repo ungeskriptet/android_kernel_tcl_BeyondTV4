@@ -163,6 +163,7 @@ struct us_data {
 	/* hacks for READ CAPACITY bug handling */
 	int			use_last_sector_hacks;
 	int			last_sector_retries;
+	struct list_head  us_data_list;
 };
 
 /* Convert between us_data and the corresponding Scsi_Host */
@@ -212,12 +213,16 @@ extern void usb_stor_adjust_quirks(struct usb_device *dev,
 #define module_usb_stor_driver(__driver, __sht, __name) \
 static int __init __driver##_init(void) \
 { \
+	if (__driver.pm_notifier) \
+		register_pm_notifier(__driver.pm_notifier); \
 	usb_stor_host_template_init(&(__sht), __name, THIS_MODULE); \
 	return usb_register(&(__driver)); \
 } \
 module_init(__driver##_init); \
 static void __exit __driver##_exit(void) \
 { \
+	if (__driver.pm_notifier) \
+		unregister_pm_notifier(__driver.pm_notifier); \
 	usb_deregister(&(__driver)); \
 } \
 module_exit(__driver##_exit)

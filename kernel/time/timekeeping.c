@@ -701,6 +701,38 @@ static void timekeeping_forward_now(struct timekeeper *tk)
 	tk_normalize_xtime(tk);
 }
 
+#ifdef CONFIG_ANDROID
+extern struct timezone sys_tz;
+int printf_ (const char *fmt, ...);
+void get_local_time (unsigned int *hour,unsigned int *minute,unsigned int *second,unsigned int* millisecond)
+{
+    struct timeval tv;
+    unsigned int local_time;
+
+    struct tk_read_base *tkr=&(tk_core.timekeeper.tkr_mono);
+
+    if ((tkr->clock) == NULL)
+    {
+        return;
+    }
+
+    if (unlikely(timekeeping_suspended))
+    {
+        return;
+    }
+
+    do_gettimeofday(&tv);
+
+    local_time = (tv.tv_sec - (sys_tz.tz_minuteswest * 60))%(3600*24);
+    *hour=local_time/3600;
+    *minute=(local_time%3600)/60;
+    *second=local_time%60;
+    *millisecond=(unsigned int)(tv.tv_usec/1000);
+
+    return;
+}
+#endif
+
 /**
  * __getnstimeofday64 - Returns the time of day in a timespec64.
  * @ts:		pointer to the timespec to be set
@@ -2195,6 +2227,12 @@ struct timespec64 get_monotonic_coarse64(void)
 	return now;
 }
 EXPORT_SYMBOL(get_monotonic_coarse64);
+#ifdef CONFIG_REALTEK_LOGBUF
+__attribute__((weak)) void update_rtdlog_timestamp(void)
+{
+        return;
+}
+#endif
 
 /*
  * Must hold jiffies_lock
@@ -2203,6 +2241,11 @@ void do_timer(unsigned long ticks)
 {
 	jiffies_64 += ticks;
 	calc_global_load(ticks);
+
+#ifdef CONFIG_REALTEK_LOGBUF
+        update_rtdlog_timestamp();
+#endif
+
 }
 
 /**

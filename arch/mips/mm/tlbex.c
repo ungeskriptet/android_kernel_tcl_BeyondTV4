@@ -11,6 +11,9 @@
  * Copyright (C) 2008, 2009 Cavium Networks, Inc.
  * Copyright (C) 2011  MIPS Technologies, Inc.
  *
+ * Modified for RLX processors
+ * Copyright (C) 2008-2012 Tony Wu (tonywu@realtek.com)
+ *
  * ... and the days got worse and worse and now you see
  * I've gone completely out of my mind.
  *
@@ -314,7 +317,7 @@ static struct uasm_reloc relocs[128];
 static int check_for_high_segbits;
 static bool fill_includes_sw_bits;
 
-static unsigned int kscratch_used_mask;
+static unsigned int kscratch_used_mask __maybe_unused;
 
 static inline int __maybe_unused c0_kscratch(void)
 {
@@ -329,6 +332,9 @@ static inline int __maybe_unused c0_kscratch(void)
 
 static int allocate_kscratch(void)
 {
+#ifdef CONFIG_CPU_RLX
+	return -1;
+#else
 	int r;
 	unsigned int a = cpu_data[0].kscratch_mask & ~kscratch_used_mask;
 
@@ -342,6 +348,7 @@ static int allocate_kscratch(void)
 	kscratch_used_mask |= (1 << r);
 
 	return r;
+#endif
 }
 
 static int scratch_reg;
@@ -409,22 +416,50 @@ static void build_restore_work_registers(u32 **p)
 extern unsigned long pgd_current[];
 
 /*
+ * TMP and PTR are scratch.
+ * TMP will be clobbered, PTR will hold the pgd entry.
+ */
+static void __maybe_unused
+build_get_pgde32_r3000(u32 **p, unsigned int tmp, unsigned int ptr)
+{
+	long pgdc = (long)pgd_current;
+
+#ifdef CONFIG_SMP
+	/*
+	 * 32 bit SMP has smp_processor_id() stored in CONTEXT.
+	 *
+	 * smp_processor_id() << (PTEBASE_SHIFT + 2) is stored in CONTEXT.
+	 *
+	 * If CONTEXT >> PTEBASE_SHIFT, we get smp_processor_id() << 2,
+	 * which equals to (smp_processor_id() * 4), add this to pgdc to
+	 * get faulting cpu's pgd_current.
+         */
+	uasm_i_mfc0(p, ptr, SMP_CPUID_REG);
+	UASM_i_LA_mostly(p, tmp, pgdc); /* lui %hi(pgdc) */
+	uasm_i_srl(p, ptr, ptr, SMP_CPUID_PTRSHIFT); /* pgd_current + ix4 */
+	uasm_i_addu(p, ptr, tmp, ptr);
+#else
+	UASM_i_LA_mostly(p, ptr, pgdc);
+#endif
+	uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
+	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
+	uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
+	uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
+	uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+}
+
+/*
  * The R3000 TLB handler is simple.
  */
 static void build_r3000_tlb_refill_handler(void)
 {
-	long pgdc = (long)pgd_current;
 	u32 *p;
 
 	memset(tlb_handler, 0, sizeof(tlb_handler));
 	p = tlb_handler;
 
-	uasm_i_mfc0(&p, K0, C0_BADVADDR);
-	uasm_i_lui(&p, K1, uasm_rel_hi(pgdc)); /* cp0 delay */
-	uasm_i_lw(&p, K1, uasm_rel_lo(pgdc), K1);
-	uasm_i_srl(&p, K0, K0, 22); /* load delay */
-	uasm_i_sll(&p, K0, K0, 2);
-	uasm_i_addu(&p, K1, K1, K0);
+	build_get_pgde32_r3000(&p, K0, K1); /* get pgd in K1 */
+
 	uasm_i_mfc0(&p, K0, C0_CONTEXT);
 	uasm_i_lw(&p, K1, 0, K1); /* cp0 delay */
 	uasm_i_andi(&p, K0, K0, 0xffc); /* load delay */
@@ -1482,50 +1517,6 @@ static void build_r4000_tlb_refill_handler(void)
 	dump_handler("r4000_tlb_refill", (u32 *)ebase, 64);
 }
 
-static void setup_pw(void)
-{
-	unsigned long pgd_i, pgd_w;
-#ifndef __PAGETABLE_PMD_FOLDED
-	unsigned long pmd_i, pmd_w;
-#endif
-	unsigned long pt_i, pt_w;
-	unsigned long pte_i, pte_w;
-#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
-	unsigned long psn;
-
-	psn = ilog2(_PAGE_HUGE);     /* bit used to indicate huge page */
-#endif
-	pgd_i = PGDIR_SHIFT;  /* 1st level PGD */
-#ifndef __PAGETABLE_PMD_FOLDED
-	pgd_w = PGDIR_SHIFT - PMD_SHIFT + PGD_ORDER;
-
-	pmd_i = PMD_SHIFT;    /* 2nd level PMD */
-	pmd_w = PMD_SHIFT - PAGE_SHIFT;
-#else
-	pgd_w = PGDIR_SHIFT - PAGE_SHIFT + PGD_ORDER;
-#endif
-
-	pt_i  = PAGE_SHIFT;    /* 3rd level PTE */
-	pt_w  = PAGE_SHIFT - 3;
-
-	pte_i = ilog2(_PAGE_GLOBAL);
-	pte_w = 0;
-
-#ifndef __PAGETABLE_PMD_FOLDED
-	write_c0_pwfield(pgd_i << 24 | pmd_i << 12 | pt_i << 6 | pte_i);
-	write_c0_pwsize(1 << 30 | pgd_w << 24 | pmd_w << 12 | pt_w << 6 | pte_w);
-#else
-	write_c0_pwfield(pgd_i << 24 | pt_i << 6 | pte_i);
-	write_c0_pwsize(1 << 30 | pgd_w << 24 | pt_w << 6 | pte_w);
-#endif
-
-#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
-	write_c0_pwctl(1 << 6 | psn);
-#endif
-	write_c0_kpgd(swapper_pg_dir);
-	kscratch_used_mask |= (1 << 7); /* KScratch6 is used for KPGD */
-}
-
 static void build_loongson3_tlb_refill_handler(void)
 {
 	u32 *p = tlb_handler;
@@ -1887,8 +1878,11 @@ build_pte_modifiable(u32 **p, struct uasm_reloc **r,
 static void
 build_r3000_pte_reload_tlbwi(u32 **p, unsigned int pte, unsigned int tmp)
 {
-	uasm_i_mtc0(p, pte, C0_ENTRYLO0); /* cp0 delay */
+#ifdef CONFIG_SMP
+	UASM_i_LW(p, pte, 0, tmp);
+#endif
 	uasm_i_mfc0(p, tmp, C0_EPC); /* cp0 delay */
+	uasm_i_mtc0(p, pte, C0_ENTRYLO0); /* cp0 delay */
 	uasm_i_tlbwi(p);
 	uasm_i_jr(p, tmp);
 	uasm_i_rfe(p); /* branch delay */
@@ -1905,6 +1899,9 @@ build_r3000_tlb_reload_write(u32 **p, struct uasm_label **l,
 			     struct uasm_reloc **r, unsigned int pte,
 			     unsigned int tmp)
 {
+#ifdef CONFIG_SMP
+	UASM_i_LW(p, pte, 0, tmp);
+#endif
 	uasm_i_mfc0(p, tmp, C0_INDEX);
 	uasm_i_mtc0(p, pte, C0_ENTRYLO0); /* cp0 delay */
 	uasm_il_bltz(p, r, tmp, label_r3000_write_probe_fail); /* cp0 delay */
@@ -1919,21 +1916,18 @@ build_r3000_tlb_reload_write(u32 **p, struct uasm_label **l,
 }
 
 static void
-build_r3000_tlbchange_handler_head(u32 **p, unsigned int pte,
-				   unsigned int ptr)
+build_r3000_tlbchange_handler_head(u32 **p, struct uasm_label **l,
+				   unsigned int pte, unsigned int ptr)
 {
-	long pgdc = (long)pgd_current;
+	build_get_pgde32_r3000(p, pte, ptr); /* get pgd in ptr */
 
-	uasm_i_mfc0(p, pte, C0_BADVADDR);
-	uasm_i_lui(p, ptr, uasm_rel_hi(pgdc)); /* cp0 delay */
-	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
-	uasm_i_srl(p, pte, pte, 22); /* load delay */
-	uasm_i_sll(p, pte, pte, 2);
-	uasm_i_addu(p, ptr, ptr, pte);
 	uasm_i_mfc0(p, pte, C0_CONTEXT);
 	uasm_i_lw(p, ptr, 0, ptr); /* cp0 delay */
 	uasm_i_andi(p, pte, pte, 0xffc); /* load delay */
 	uasm_i_addu(p, ptr, ptr, pte);
+#ifdef CONFIG_SMP
+	uasm_l_smp_pgtable_change(l, *p);
+#endif
 	uasm_i_lw(p, pte, 0, ptr);
 	uasm_i_tlbp(p); /* load delay */
 }
@@ -1949,7 +1943,7 @@ static void build_r3000_tlb_load_handler(void)
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
 
-	build_r3000_tlbchange_handler_head(&p, K0, K1);
+	build_r3000_tlbchange_handler_head(&p, &l, K0, K1);
 	build_pte_present(&p, &r, K0, K1, -1, label_nopage_tlbl);
 	uasm_i_nop(&p); /* load delay */
 	build_make_valid(&p, &r, K0, K1, -1);
@@ -1980,7 +1974,7 @@ static void build_r3000_tlb_store_handler(void)
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
 
-	build_r3000_tlbchange_handler_head(&p, K0, K1);
+	build_r3000_tlbchange_handler_head(&p, &l, K0, K1);
 	build_pte_writable(&p, &r, K0, K1, -1, label_nopage_tlbs);
 	uasm_i_nop(&p); /* load delay */
 	build_make_write(&p, &r, K0, K1, -1);
@@ -2011,7 +2005,7 @@ static void build_r3000_tlb_modify_handler(void)
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
 
-	build_r3000_tlbchange_handler_head(&p, K0, K1);
+	build_r3000_tlbchange_handler_head(&p, &l, K0, K1);
 	build_pte_modifiable(&p, &r, K0, K1,  -1, label_nopage_tlbm);
 	uasm_i_nop(&p); /* load delay */
 	build_make_write(&p, &r, K0, K1, -1);
@@ -2625,16 +2619,7 @@ void build_tlb_refill_handler(void)
 #ifdef CONFIG_64BIT
 	check_for_high_segbits = current_cpu_data.vmbits > (PGDIR_SHIFT + PGD_ORDER + PAGE_SHIFT - 3);
 #endif
-
-	switch (current_cpu_type()) {
-	case CPU_R2000:
-	case CPU_R3000:
-	case CPU_R3000A:
-	case CPU_R3081E:
-	case CPU_TX3912:
-	case CPU_TX3922:
-	case CPU_TX3927:
-#ifndef CONFIG_MIPS_PGD_C0_CONTEXT
+	if (cpu_has_3kex) {
 		if (cpu_has_local_ebase)
 			build_r3000_tlb_refill_handler();
 		if (!run_once) {
@@ -2647,19 +2632,7 @@ void build_tlb_refill_handler(void)
 			flush_tlb_handlers();
 			run_once++;
 		}
-#else
-		panic("No R3000 TLB refill handler");
-#endif
-		break;
-
-	case CPU_R8000:
-		panic("No R8000 TLB refill handler yet");
-		break;
-
-	default:
-		if (cpu_has_ldpte)
-			setup_pw();
-
+	} else {
 		if (!run_once) {
 			scratch_reg = allocate_kscratch();
 			build_setup_pgd();

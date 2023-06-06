@@ -166,12 +166,14 @@ static bool timeline_fence_enable_signaling(struct dma_fence *fence)
 	return true;
 }
 
+#if 0 //[M6PRTANPM-267] remove fence disable signaling method
 static void timeline_fence_disable_signaling(struct dma_fence *fence)
 {
 	struct sync_pt *pt = dma_fence_to_sync_pt(fence);
 
 	list_del_init(&pt->link);
 }
+#endif
 
 static void timeline_fence_value_str(struct dma_fence *fence,
 				    char *str, int size)
@@ -191,7 +193,9 @@ static const struct dma_fence_ops timeline_fence_ops = {
 	.get_driver_name = timeline_fence_get_driver_name,
 	.get_timeline_name = timeline_fence_get_timeline_name,
 	.enable_signaling = timeline_fence_enable_signaling,
+#if 0 //[M6PRTANPM-267] remove fence disable signaling method
 	.disable_signaling = timeline_fence_disable_signaling,
+#endif
 	.signaled = timeline_fence_signaled,
 	.wait = dma_fence_default_wait,
 	.release = timeline_fence_release,

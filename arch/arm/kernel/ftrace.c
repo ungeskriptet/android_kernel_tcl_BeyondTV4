@@ -126,6 +126,7 @@ static int ftrace_modify_code(unsigned long pc, unsigned long old,
 		return -EPERM;
 
 	flush_icache_range(pc, pc + MCOUNT_INSN_SIZE);
+	dmac_flush_range(pc, pc + MCOUNT_INSN_SIZE);
 
 	return 0;
 }

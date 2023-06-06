@@ -249,6 +249,40 @@ static void show_code(unsigned int __user *pc)
 	pr_cont("\n");
 }
 
+#ifdef CONFIG_CPU_HAS_RADIAX
+static void __show_radiax(struct task_struct *tsk)
+{
+	struct mips_radiax_struct *regs = &tsk->thread.radiax;
+
+	printk("CBS0  : %08x\n", (uint32_t)regs->radiaxr[0]);
+	printk("CBS1  : %08x\n", (uint32_t)regs->radiaxr[1]);
+	printk("CBS2  : %08x\n", (uint32_t)regs->radiaxr[2]);
+	printk("CBE0  : %08x\n", (uint32_t)regs->radiaxr[3]);
+	printk("CBE1  : %08x\n", (uint32_t)regs->radiaxr[4]);
+	printk("CBE2  : %08x\n", (uint32_t)regs->radiaxr[5]);
+	printk("LPS0  : %08x\n", (uint32_t)regs->radiaxr[6]);
+	printk("LPE0  : %08x\n", (uint32_t)regs->radiaxr[7]);
+	printk("LPC0  : %08x\n", (uint32_t)regs->radiaxr[8]);
+	printk("MMD   : %08x\n", (uint32_t)regs->radiaxr[9]);
+	printk("M0LL  : %08x\n", (uint32_t)regs->radiaxr[10]);
+	printk("M0LH  : %08x\n", (uint32_t)regs->radiaxr[11]);
+	printk("M0HL  : %08x\n", (uint32_t)regs->radiaxr[12]);
+	printk("M0HH  : %08x\n", (uint32_t)regs->radiaxr[13]);
+	printk("M1LL  : %08x\n", (uint32_t)regs->radiaxr[14]);
+	printk("M1LH  : %08x\n", (uint32_t)regs->radiaxr[15]);
+	printk("M1HL  : %08x\n", (uint32_t)regs->radiaxr[16]);
+	printk("M1HH  : %08x\n", (uint32_t)regs->radiaxr[17]);
+	printk("M2LL  : %08x\n", (uint32_t)regs->radiaxr[18]);
+	printk("M2LH  : %08x\n", (uint32_t)regs->radiaxr[19]);
+	printk("M2HL  : %08x\n", (uint32_t)regs->radiaxr[20]);
+	printk("M2HH  : %08x\n", (uint32_t)regs->radiaxr[21]);
+	printk("M3LL  : %08x\n", (uint32_t)regs->radiaxr[22]);
+	printk("M3LH  : %08x\n", (uint32_t)regs->radiaxr[23]);
+	printk("M3HL  : %08x\n", (uint32_t)regs->radiaxr[24]);
+	printk("N3HH  : %08x\n", (uint32_t)regs->radiaxr[25]);
+}
+#endif
+
 static void __show_regs(const struct pt_regs *regs)
 {
 	const int field = 2 * sizeof(unsigned long);
@@ -343,6 +377,10 @@ static void __show_regs(const struct pt_regs *regs)
 
 	printk("PrId  : %08x (%s)\n", read_c0_prid(),
 	       cpu_name_string());
+
+#ifdef CONFIG_CPU_HAS_RADIAX
+	__show_radiax(current);
+#endif
 }
 
 /*
@@ -503,6 +541,7 @@ out:
 #define FUNC   0x0000003f
 #define SYNC   0x0000000f
 #define RDHWR  0x0000003b
+#define MFLXC0 0x40634000
 
 /*  microMIPS definitions   */
 #define MM_POOL32A_FUNC 0xfc00ffff
@@ -661,6 +700,18 @@ static int simulate_rdhwr(struct pt_regs *regs, int rd, int rt)
 
 static int simulate_rdhwr_normal(struct pt_regs *regs, unsigned int opcode)
 {
+#ifdef CONFIG_CPU_RLX
+	if (opcode == MFLXC0) {
+		struct thread_info *ti = task_thread_info(current);
+		int rt = (opcode & RT) >> 16;
+
+		perf_sw_event(PERF_COUNT_SW_EMULATION_FAULTS,
+				1, regs, 0);
+
+		regs->regs[rt] = ti->tp_value;
+		return 0;
+	}
+#else
 	if ((opcode & OPCODE) == SPEC3 && (opcode & FUNC) == RDHWR) {
 		int rd = (opcode & RD) >> 11;
 		int rt = (opcode & RT) >> 16;
@@ -668,6 +719,7 @@ static int simulate_rdhwr_normal(struct pt_regs *regs, unsigned int opcode)
 		simulate_rdhwr(regs, rd, rt);
 		return 0;
 	}
+#endif
 
 	/* Not ours.  */
 	return -1;
@@ -1143,10 +1195,10 @@ no_r2_instr:
 		if (!cpu_has_llsc && status < 0)
 			status = simulate_llsc(regs, opcode);
 
-		if (status < 0)
+		if (!cpu_has_userlocal && status < 0)
 			status = simulate_rdhwr_normal(regs, opcode);
 
-		if (status < 0)
+		if (!cpu_has_sync && status < 0)
 			status = simulate_sync(regs, opcode);
 
 		if (status < 0)
@@ -1446,7 +1498,6 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 		/* Send a signal if required.  */
 		if (!process_fpemu_return(sig, fault_addr, fcr31) && !err)
 			mt_ase_fp_affinity();
-
 		break;
 
 	case 2:
@@ -1457,6 +1508,7 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 	exception_exit(prev_state);
 }
 
+#ifdef CONFIG_CPU_HAS_MSA
 asmlinkage void do_msa_fpe(struct pt_regs *regs, unsigned int msacsr)
 {
 	enum ctx_state prev_state;
@@ -1497,7 +1549,9 @@ asmlinkage void do_msa(struct pt_regs *regs)
 out:
 	exception_exit(prev_state);
 }
+#endif
 
+#ifndef CONFIG_CPU_RLX
 asmlinkage void do_mdmx(struct pt_regs *regs)
 {
 	enum ctx_state prev_state;
@@ -1506,10 +1560,12 @@ asmlinkage void do_mdmx(struct pt_regs *regs)
 	force_sig(SIGILL, current);
 	exception_exit(prev_state);
 }
+#endif
 
 /*
  * Called with interrupts disabled.
  */
+#ifdef CONFIG_HARDWARE_WATCHPOINTS
 asmlinkage void do_watch(struct pt_regs *regs)
 {
 	siginfo_t info = { .si_signo = SIGTRAP, .si_code = TRAP_HWBKPT };
@@ -1537,7 +1593,9 @@ asmlinkage void do_watch(struct pt_regs *regs)
 	}
 	exception_exit(prev_state);
 }
+#endif
 
+#ifndef CONFIG_CPU_RLX
 asmlinkage void do_mcheck(struct pt_regs *regs)
 {
 	int multi_match = regs->cp0_status & ST0_TS;
@@ -1568,7 +1626,9 @@ asmlinkage void do_mcheck(struct pt_regs *regs)
 	      "matching entries in the TLB.",
 	      (multi_match) ? "" : "not ");
 }
+#endif
 
+#ifdef CONFIG_MIPS_MT
 asmlinkage void do_mt(struct pt_regs *regs)
 {
 	int subcode;
@@ -1603,8 +1663,10 @@ asmlinkage void do_mt(struct pt_regs *regs)
 
 	force_sig(SIGILL, current);
 }
+#endif
 
 
+#ifdef CONFIG_CPU_HAS_DSP
 asmlinkage void do_dsp(struct pt_regs *regs)
 {
 	if (cpu_has_dsp)
@@ -1612,6 +1674,7 @@ asmlinkage void do_dsp(struct pt_regs *regs)
 
 	force_sig(SIGILL, current);
 }
+#endif
 
 asmlinkage void do_reserved(struct pt_regs *regs)
 {
@@ -1837,6 +1900,7 @@ asmlinkage void cache_parity_error(void)
 	panic("Can't handle the cache error!");
 }
 
+#ifndef CONFIG_CPU_RLX
 asmlinkage void do_ftlb(void)
 {
 	const int field = 2 * sizeof(unsigned long);
@@ -1928,6 +1992,7 @@ void __noreturn nmi_exception_handler(struct pt_regs *regs)
 	die(str, regs);
 	nmi_exit();
 }
+#endif
 
 #define VECTORSPACING 0x100	/* for EI/VI mode */
 
@@ -2104,17 +2169,6 @@ EXPORT_SYMBOL_GPL(cp0_perfcount_irq);
 int cp0_fdc_irq;
 EXPORT_SYMBOL_GPL(cp0_fdc_irq);
 
-static int noulri;
-
-static int __init ulri_disable(char *s)
-{
-	pr_info("Disabling ulri\n");
-	noulri = 1;
-
-	return 1;
-}
-__setup("noulri", ulri_disable);
-
 /* configure STATUS register */
 static void configure_status(void)
 {
@@ -2152,7 +2206,7 @@ static void configure_hwrena(void)
 			  MIPS_HWRENA_CC |
 			  MIPS_HWRENA_CCRES;
 
-	if (!noulri && cpu_has_userlocal)
+	if (cpu_has_mips_r && cpu_has_userlocal)
 		hwrena |= MIPS_HWRENA_ULR;
 
 	if (hwrena)
@@ -2278,20 +2332,10 @@ void set_uncached_handler(unsigned long offset, void *addr,
 	memcpy((void *)(uncached_ebase + offset), addr, size);
 }
 
-static int __initdata rdhwr_noopt;
-static int __init set_rdhwr_noopt(char *str)
-{
-	rdhwr_noopt = 1;
-	return 1;
-}
-
-__setup("rdhwr_noopt", set_rdhwr_noopt);
-
 void __init trap_init(void)
 {
 	extern char except_vec3_generic;
 	extern char except_vec4;
-	extern char except_vec3_r4000;
 	unsigned long i;
 
 	check_wait();
@@ -2369,8 +2413,10 @@ void __init trap_init(void)
 	/*
 	 * Only some CPUs have the watch exceptions.
 	 */
+#ifdef CONFIG_HARDWARE_WATCHPOINTS
 	if (cpu_has_watch)
 		set_except_vector(EXCCODE_WATCH, handle_watch);
+#endif
 
 	/*
 	 * Initialise interrupt handlers
@@ -2412,7 +2458,10 @@ void __init trap_init(void)
 	set_except_vector(EXCCODE_SYS, handle_sys);
 	set_except_vector(EXCCODE_BP, handle_bp);
 
-	if (rdhwr_noopt)
+#ifdef CONFIG_CPU_RLX
+	set_except_vector(EXCCODE_RI, handle_ri);
+#else
+	if (cpu_has_userlocal)
 		set_except_vector(EXCCODE_RI, handle_ri);
 	else {
 		if (cpu_has_vtag_icache)
@@ -2422,11 +2471,15 @@ void __init trap_init(void)
 		else
 			set_except_vector(EXCCODE_RI, handle_ri_rdhwr);
 	}
+#endif
 
 	set_except_vector(EXCCODE_CPU, handle_cpu);
 	set_except_vector(EXCCODE_OV, handle_ov);
-	set_except_vector(EXCCODE_TR, handle_tr);
-	set_except_vector(EXCCODE_MSAFPE, handle_msa_fpe);
+	if (cpu_has_tr)
+		set_except_vector(EXCCODE_TR, handle_tr);
+
+	if (cpu_has_msa)
+		set_except_vector(EXCCODE_MSAFPE, handle_msa_fpe);
 
 	if (board_nmi_handler_setup)
 		board_nmi_handler_setup();
@@ -2434,15 +2487,19 @@ void __init trap_init(void)
 	if (cpu_has_fpu && !cpu_has_nofpuex)
 		set_except_vector(EXCCODE_FPE, handle_fpe);
 
-	set_except_vector(MIPS_EXCCODE_TLBPAR, handle_ftlb);
+	if (cpu_has_ftlb)
+		set_except_vector(MIPS_EXCCODE_TLBPAR, handle_ftlb);
 
 	if (cpu_has_rixiex) {
 		set_except_vector(EXCCODE_TLBRI, tlb_do_page_fault_0);
 		set_except_vector(EXCCODE_TLBXI, tlb_do_page_fault_0);
 	}
 
-	set_except_vector(EXCCODE_MSADIS, handle_msa);
-	set_except_vector(EXCCODE_MDMX, handle_mdmx);
+	if (cpu_has_msa)
+		set_except_vector(EXCCODE_MSADIS, handle_msa);
+
+	if (cpu_has_mdmx)
+		set_except_vector(EXCCODE_MDMX, handle_mdmx);
 
 	if (cpu_has_mcheck)
 		set_except_vector(EXCCODE_MCHECK, handle_mcheck);
@@ -2450,15 +2507,13 @@ void __init trap_init(void)
 	if (cpu_has_mipsmt)
 		set_except_vector(EXCCODE_THREAD, handle_mt);
 
-	set_except_vector(EXCCODE_DSPDIS, handle_dsp);
+	if (cpu_has_dsp)
+		set_except_vector(EXCCODE_DSPDIS, handle_dsp);
 
 	if (board_cache_error_setup)
 		board_cache_error_setup();
 
-	if (cpu_has_vce)
-		/* Special exception: R4[04]00 uses also the divec space. */
-		set_handler(0x180, &except_vec3_r4000, 0x100);
-	else if (cpu_has_4kex)
+	if (cpu_has_4kex)
 		set_handler(0x180, &except_vec3_generic, 0x80);
 	else
 		set_handler(0x080, &except_vec3_generic, 0x80);

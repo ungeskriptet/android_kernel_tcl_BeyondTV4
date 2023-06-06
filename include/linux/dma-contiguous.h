@@ -86,6 +86,12 @@ int __init dma_contiguous_reserve_area(phys_addr_t size, phys_addr_t base,
 				       phys_addr_t limit, struct cma **res_cma,
 				       bool fixed);
 
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+#define DEFAULT_CMA_GFP_FLAG  GFP_KERNEL
+
+int __init dma_declare_null(struct device *dev);
+#endif
+
 /**
  * dma_declare_contiguous() - reserve area for contiguous memory handling
  *			      for particular device
@@ -108,6 +114,13 @@ static inline int dma_declare_contiguous(struct device *dev, phys_addr_t size,
 	if (ret == 0)
 		dev_set_cma_area(dev, cma);
 
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+	if (dev == NULL && dma_contiguous_default_area == NULL)
+		dma_contiguous_set_default(cma);
+	else if (dev == NULL)
+		BUG();
+#endif
+
 	return ret;
 }
 
@@ -115,6 +128,11 @@ struct page *dma_alloc_from_contiguous(struct device *dev, size_t count,
 				       unsigned int order, gfp_t gfp_mask);
 bool dma_release_from_contiguous(struct device *dev, struct page *pages,
 				 int count);
+
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+bool in_cma_range(struct device *dev, unsigned long pfn);
+unsigned long cma_get_avail_size(struct device *dev);
+#endif
 
 #else
 

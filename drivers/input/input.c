@@ -40,6 +40,104 @@ static DEFINE_IDA(input_ida);
 static LIST_HEAD(input_dev_list);
 static LIST_HEAD(input_handler_list);
 
+#include <linux/input_event_intercept.h> 
+static u32 g_intercept_event_function_enable = 1;
+static INPUT_EVENT_INTERCEPT_LIST g_intercept_event_list;
+
+/*class attributes to apply some mechanisms to the class*/
+static unsigned int input_event_filter_map = 0;
+static int input_event_type_filtered(unsigned int type)
+{
+        if(input_event_filter_map & BIT_MASK(type))
+                return 1;
+        return 0;
+}
+static ssize_t input_event_type_filter_show(struct class *class,
+                                struct class_attribute *attr, char *buf)
+{
+        buf[0] = 0;
+        sprintf(buf + strlen(buf), "The filter status of input event type as following:\n");
+        sprintf(buf + strlen(buf), "EV_SYN: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_SYN)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_KEY: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_KEY)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_REL: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_REL)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_ABS: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_ABS)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_MSC: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_MSC)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_SW: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_SW)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_LED: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_LED)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_SND: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_SND)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_REP: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_REP)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_FF: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_FF)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_PWR: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_PWR)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "EV_FF_STATUS: %s\n",
+                (input_event_filter_map & BIT_MASK(EV_FF_STATUS)) ? "off" : "on");
+        sprintf(buf + strlen(buf), "You can echo EV_XXX on/off > /sys/class/input/input_event_type_filter to filter a input event type or not\n");
+        return strlen(buf);
+}
+static ssize_t input_event_type_filter_store(struct class *class,
+                                struct class_attribute *attr, const char *buf, size_t count)
+{
+        char ev_type_str[32] = {0};
+        char action_str[16] = {0};
+        if (sscanf(buf, "%31s%15s", ev_type_str, action_str) == 2) {
+                unsigned int ev_type = 0;
+                unsigned int filter = 0;
+                
+                if(strcmp(ev_type_str, "EV_SYN") == 0)
+                        ev_type = EV_SYN;
+                else if(strcmp(ev_type_str, "EV_KEY") == 0)
+                        ev_type = EV_KEY;
+                else if(strcmp(ev_type_str, "EV_REL") == 0)
+                        ev_type = EV_REL;
+                else if(strcmp(ev_type_str, "EV_ABS") == 0)
+                        ev_type = EV_ABS;
+                else if(strcmp(ev_type_str, "EV_MSC") == 0)
+                        ev_type = EV_MSC;
+                else if(strcmp(ev_type_str, "EV_SW") == 0)
+                        ev_type = EV_SW;
+                else if(strcmp(ev_type_str, "EV_LED") == 0)
+                        ev_type = EV_LED;
+                else if(strcmp(ev_type_str, "EV_SND") == 0)
+                        ev_type = EV_SND;
+                else if(strcmp(ev_type_str, "EV_REP") == 0)
+                        ev_type = EV_REP;
+                else if(strcmp(ev_type_str, "EV_FF") == 0)
+                        ev_type = EV_FF;
+                else if(strcmp(ev_type_str, "EV_PWR") == 0)
+                        ev_type = EV_PWR;
+                else if(strcmp(ev_type_str, "EV_FF_STATUS") == 0)
+                        ev_type = EV_FF_STATUS;
+                else
+                        return -EINVAL;
+                if(strcmp(action_str, "off") == 0)
+                        filter = 1;
+                else if(strcmp(action_str, "on") == 0)
+                        filter = 0;
+                else
+                        return -EINVAL;
+                if(filter)
+                        input_event_filter_map |= BIT_MASK(ev_type);
+                else
+                        input_event_filter_map &= (~BIT_MASK(ev_type));
+                return count;
+                        
+        }
+        return -EINVAL;
+}
+
+static CLASS_ATTR_RW(input_event_type_filter);
+
+
 /*
  * input_mutex protects access to both input_dev_list and input_handler_list.
  * This also causes input_[un]register_device and input_[un]register_handler
@@ -299,7 +397,11 @@ static int input_get_disposition(struct input_dev *dev,
 			}
 		}
 		break;
-
+        
+        case EV_KEY_RAW:
+                disposition = INPUT_PASS_TO_HANDLERS;
+		break;
+        
 	case EV_SW:
 		if (is_event_supported(code, dev->swbit, SW_MAX) &&
 		    !!test_bit(code, dev->sw) != !!value) {
@@ -429,7 +531,44 @@ void input_event(struct input_dev *dev,
 		 unsigned int type, unsigned int code, int value)
 {
 	unsigned long flags;
+	if(input_event_type_filtered(type))
+		return;
+	if(g_intercept_event_function_enable)	 {
+           if(type == EV_KEY) {
+    		if (is_event_supported(type, dev->evbit, EV_MAX)) {
+    			
+    			unsigned int intercept_flags = 0;  
+    			spin_lock_irqsave(&dev->event_lock, flags);
+    			if (!is_event_supported(code, dev->keybit, KEY_MAX)) {
+    				spin_unlock_irqrestore(&dev->event_lock, flags);
+    				return ;
+    			}
 
+                if ((dev->name && strcmp(dev->name, "Microsoft X-Box 360 pad") == 0) && (!!test_bit(code, dev->key) == !!value)  && (value != 2)) {
+                    spin_unlock_irqrestore(&dev->event_lock, flags);
+                    return ;
+                }
+
+    			spin_unlock_irqrestore(&dev->event_lock, flags);
+    			if(input_query_intercept_event(&g_intercept_event_list, type, code, value, &intercept_flags) == 0) {
+    				if(value == 1 && (intercept_flags & INPUT_INTERCEPT_EVENT_KEYDOWN_SEND_UEVENT))
+    					input_send_intercept_uevent(&g_intercept_event_list, dev, type, code, value);
+    				if(value == 0 && (intercept_flags & INPUT_INTERCEPT_EVENT_KEYUP_SEND_UEVENT))
+    					input_send_intercept_uevent(&g_intercept_event_list, dev, type, code, value);
+				dev->last_key_intercept_status = 1;
+    				return;
+    			}
+			dev->last_key_intercept_status = 0;
+    		}       
+
+            }else if(type == EV_SYN) {
+                if(dev->last_key_intercept_status)
+                    return;
+            }else{
+                dev->last_key_intercept_status = 0;
+            }
+       }
+       
 	if (is_event_supported(type, dev->evbit, EV_MAX)) {
 
 		spin_lock_irqsave(&dev->event_lock, flags);
@@ -2427,6 +2566,140 @@ void input_free_minor(unsigned int minor)
 }
 EXPORT_SYMBOL(input_free_minor);
 
+
+ssize_t input_intercept_add_event_store(struct class *class,
+                                struct class_attribute *attr, const char *buf, size_t count)
+{
+    u32 type = 0;
+    u32 code = 0;
+    u32 value = 0;
+    u32 flags = 0;
+    if (sscanf(buf, "%x,%x,%x,%x", &type, &code, &value, &flags) == 4) {
+        input_add_intercept_event(&g_intercept_event_list, type, code, value, flags);
+        return count;
+    }
+    return -EINVAL;
+}
+
+ssize_t input_intercept_add_event_show(struct class *class,
+                                struct class_attribute *attr, char *buf)
+{
+    return -EINVAL;
+}
+
+
+
+ssize_t input_intercept_remove_event_store(struct class *class,
+                                struct class_attribute *attr, const char *buf, size_t count)
+{
+    u32 type = 0;
+    u32 code = 0;
+    u32 value = 0;
+    u32 flags = 0;
+    if (sscanf(buf, "%x,%x,%x,%x", &type, &code, &value, &flags) == 4) {
+        input_remove_intercept_event(&g_intercept_event_list, type, code, value, flags);
+        return count;
+    }
+    return -EINVAL;
+}
+
+ssize_t input_intercept_remove_event_show(struct class *class,
+                                struct class_attribute *attr, char *buf)
+{
+    return -EINVAL;
+}
+
+ssize_t input_event_fuction_enable_store(struct class *class,
+                                struct class_attribute *attr, const char *buf, size_t count)
+{
+    u32 enable = 0;
+    if (sscanf(buf, "%u", &enable) == 1) {
+        g_intercept_event_function_enable = enable;
+        return count;
+    }
+    return -EINVAL;
+}
+
+ssize_t input_event_fuction_enable_show(struct class *class,
+                                struct class_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%u", g_intercept_event_function_enable);
+}
+
+static void _input_event_no_intercept(struct input_dev *dev,
+                                    unsigned int type, unsigned int code, int value)
+{
+    unsigned long flags;
+
+    if (is_event_supported(type, dev->evbit, EV_MAX)) {
+        spin_lock_irqsave(&dev->event_lock, flags);
+        input_handle_event(dev, type, code, value);
+        spin_unlock_irqrestore(&dev->event_lock, flags);
+    }
+}
+
+static struct input_dev * input_dev_query(u32 dev_addr)
+{
+    struct input_dev *dev = NULL;
+    struct list_head *node = NULL;
+    
+    mutex_lock(&input_mutex);
+    list_for_each(node, &input_dev_list) {
+        struct input_dev *tmp = list_entry(node, struct input_dev, node);
+        if(tmp && (INPUT_GET_DEV_IDX(tmp) == dev_addr)) {
+            dev = tmp;
+            break;
+        }
+    }
+    mutex_unlock(&input_mutex);
+    return dev;
+}
+
+ssize_t input_event_gen_store(struct class *class,
+                                struct class_attribute *attr, const char *buf, size_t count)
+{
+    char dev_name[64] = {0};
+    u32 type = 0;
+    u32 code = 0;
+    u32 value = 0;
+    u32 dev_addr = 0;
+    char *tmp = NULL;
+    tmp = strrchr(buf, ',');
+    if(!tmp)
+        return -EINVAL;
+    tmp += 1;
+    strncpy(dev_name, tmp, 63);
+    tmp[0] = 0;
+    if (sscanf(buf, "%x,%x,%x,%x", &type, &code, &value,&dev_addr) == 4) {
+        struct input_dev * input_dev = input_dev_query(dev_addr);
+        if(input_dev) {
+            if(type == EV_KEY) {
+                _input_event_no_intercept(input_dev, type, code, value); 
+                _input_event_no_intercept(input_dev, EV_SYN, SYN_REPORT, 0);
+                return count;
+            }
+        }
+        
+    }
+    return -EINVAL;
+}
+
+ssize_t input_event_gen_show(struct class *class,
+                                struct class_attribute *attr, char *buf)
+{
+    return -EINVAL;
+}
+
+
+    
+
+
+static CLASS_ATTR_RW(input_intercept_add_event);
+static CLASS_ATTR_RW(input_intercept_remove_event);
+static CLASS_ATTR_RW(input_event_gen);
+static CLASS_ATTR_RW(input_event_fuction_enable);
+
+
 static int __init input_init(void)
 {
 	int err;
@@ -2435,6 +2708,11 @@ static int __init input_init(void)
 	if (err) {
 		pr_err("unable to register input_dev class\n");
 		return err;
+	}
+	err = class_create_file(&input_class, &class_attr_input_event_type_filter);
+	if(err) {
+		pr_err("unable to create class file\n");
+		goto fail0;
 	}
 
 	err = input_proc_init();
@@ -2447,19 +2725,55 @@ static int __init input_init(void)
 		pr_err("unable to register char major %d", INPUT_MAJOR);
 		goto fail2;
 	}
+	
+	err = class_create_file(&input_class, &class_attr_input_intercept_add_event);
+	if(err) {
+		pr_err("unable to create class file for intercept function\n");
+		goto fail3;
+	}
+    
+	err = class_create_file(&input_class, &class_attr_input_intercept_remove_event);
+	if(err) {
+		pr_err("unable to create class file for intercept function\n");
+		goto fail4;
+	}
+    
+	err = class_create_file(&input_class, &class_attr_input_event_gen);
+	if(err) {
+		pr_err("unable to create class file for intercept function\n");
+		goto fail5;
+	}
 
+	err = class_create_file(&input_class, &class_attr_input_event_fuction_enable);
+	if(err) {
+		pr_err("unable to create class file for intercept function\n");
+		goto fail6;
+	}
+	
+	input_init_intercept_event_list(&input_class, &g_intercept_event_list);
 	return 0;
-
+ fail6:   class_remove_file(&input_class, &class_attr_input_event_gen); 
+ fail5:   class_remove_file(&input_class, &class_attr_input_intercept_remove_event); 
+ fail4:   class_remove_file(&input_class, &class_attr_input_intercept_add_event);	
+ fail3:   unregister_chrdev_region(MKDEV(INPUT_MAJOR, 0), INPUT_MAX_CHAR_DEVICES);    
  fail2:	input_proc_exit();
- fail1:	class_unregister(&input_class);
+ fail1:	class_remove_file(&input_class, &class_attr_input_event_type_filter);
+ fail0:	class_unregister(&input_class);
 	return err;
 }
 
 static void __exit input_exit(void)
 {
+	class_remove_file(&input_class, &class_attr_input_intercept_add_event);
+	class_remove_file(&input_class, &class_attr_input_intercept_remove_event);
+	class_remove_file(&input_class, &class_attr_input_event_gen);
+	class_remove_file(&input_class, &class_attr_input_event_fuction_enable);
+	input_free_intercept_event_list(&input_class, &g_intercept_event_list);
+	
 	input_proc_exit();
 	unregister_chrdev_region(MKDEV(INPUT_MAJOR, 0),
 				 INPUT_MAX_CHAR_DEVICES);
+	class_remove_file(&input_class, &class_attr_input_event_type_filter);
 	class_unregister(&input_class);
 }
 

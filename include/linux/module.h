@@ -26,6 +26,7 @@
 
 /* In stripped ARM and x86-64 modules, ~ is surprisingly rare. */
 #define MODULE_SIG_STRING "~Module signature appended~\n"
+#define MODULE_NEW_VERSION_SIG_STRING "~Module new version signature appended~\n"
 
 /* Not Yet Implemented */
 #define MODULE_SUPPORTED_DEVICE(name)
@@ -672,23 +673,6 @@ static inline bool __is_module_percpu_address(unsigned long addr, unsigned long 
 }
 
 static inline bool is_module_text_address(unsigned long addr)
-{
-	return false;
-}
-
-static inline bool within_module_core(unsigned long addr,
-				      const struct module *mod)
-{
-	return false;
-}
-
-static inline bool within_module_init(unsigned long addr,
-				      const struct module *mod)
-{
-	return false;
-}
-
-static inline bool within_module(unsigned long addr, const struct module *mod)
 {
 	return false;
 }

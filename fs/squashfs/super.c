@@ -177,7 +177,18 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	msblk->inodes = le32_to_cpu(sblk->inodes);
 	msblk->fragments = le32_to_cpu(sblk->fragments);
 	flags = le16_to_cpu(sblk->flags);
-
+#ifdef CONFIG_SQUASHFS_TV043
+        /* Did the mounter specify an overriding uid/gid for all files? */
+        if (data) {
+                const char *param = (const char*) data;
+                const char *p = strstr(param, "uid=");
+                if (p)
+                        msblk->uid = simple_strtoul(p+4, 0, 0);
+                p = strstr(param, "gid=");
+                if (p)
+                        msblk->gid = simple_strtoul(p+4, 0, 0);
+        }
+#endif
 	TRACE("Found valid superblock on %pg\n", sb->s_bdev);
 	TRACE("Inodes are %scompressed\n", SQUASHFS_UNCOMPRESSED_INODES(flags)
 				? "un" : "");
@@ -194,7 +205,12 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		(u64) le64_to_cpu(sblk->fragment_table_start));
 	TRACE("sblk->id_table_start %llx\n",
 		(u64) le64_to_cpu(sblk->id_table_start));
-
+#ifdef CONFIG_SQUASHFS_TV043
+        if (msblk->uid)
+                TRACE("Override uid %d\n", msblk->uid);
+        if (msblk->gid)
+                TRACE("Override gid %d\n", msblk->gid);
+#endif        
 	sb->s_maxbytes = MAX_LFS_FILESIZE;
 	sb->s_flags |= MS_RDONLY;
 	sb->s_op = &squashfs_super_ops;

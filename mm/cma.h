@@ -2,6 +2,16 @@
 #ifndef __MM_CMA_H__
 #define __MM_CMA_H__
 
+#define CONFIG_ADD_CMA_TIMEOUT_SYSRQ
+
+#define MAX_CMA_TIMER_NUM 5
+
+struct cma_timer_info {
+	struct timer_list alloc_timer;
+	int used;
+	int caller_pid;
+};
+
 struct cma {
 	unsigned long   base_pfn;
 	unsigned long   count;
@@ -13,6 +23,9 @@ struct cma {
 	spinlock_t mem_head_lock;
 #endif
 	const char *name;
+#ifdef CONFIG_ADD_CMA_TIMEOUT_SYSRQ
+	struct cma_timer_info cma_timer[MAX_CMA_TIMER_NUM];
+#endif
 };
 
 extern struct cma cma_areas[MAX_CMA_AREAS];

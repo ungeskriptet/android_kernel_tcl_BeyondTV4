@@ -400,12 +400,12 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 	     clockid != CLOCK_BOOTTIME &&
 	     clockid != CLOCK_BOOTTIME_ALARM))
 		return -EINVAL;
-
+#if (CONFIG_ANDROID_VERSION >= 8 )
 	if ((clockid == CLOCK_REALTIME_ALARM ||
 	     clockid == CLOCK_BOOTTIME_ALARM) &&
 	    !capable(CAP_WAKE_ALARM))
 		return -EPERM;
-
+#endif
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;

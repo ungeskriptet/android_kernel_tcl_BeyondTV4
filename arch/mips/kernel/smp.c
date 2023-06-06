@@ -48,6 +48,8 @@
 #include <asm/setup.h>
 #include <asm/maar.h>
 
+extern int plat_qemu;
+
 int __cpu_number_map[NR_CPUS];		/* Map physical to logical */
 EXPORT_SYMBOL(__cpu_number_map);
 
@@ -378,7 +380,8 @@ asmlinkage void start_secondary(void)
 	/* Notify boot CPU that we're starting & ready to sync counters */
 	complete(&cpu_starting);
 
-	synchronise_count_slave(cpu);
+	if (!plat_qemu)
+		synchronise_count_slave(cpu);
 
 	/* The CPU is running and counters synchronised, now mark it online */
 	set_cpu_online(cpu, true);
@@ -462,7 +465,8 @@ int __cpu_up(unsigned int cpu, struct task_struct *tidle)
 		return -EIO;
 	}
 
-	synchronise_count_master(cpu);
+	if (!plat_qemu)
+		synchronise_count_master(cpu);
 
 	/* Wait for CPU to finish startup & mark itself online before return */
 	wait_for_completion(&cpu_running);

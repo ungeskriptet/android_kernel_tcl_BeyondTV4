@@ -24,6 +24,7 @@
 
 #include <linux/uaccess.h>
 #include "internal.h"
+#include <linux/memory.h>
 
 static const char *
 strcmp_prefix(const char *a, const char *a_prefix)
@@ -344,9 +345,6 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	handler = xattr_resolve_name(inode, &name);
 	if (IS_ERR(handler))
 		return PTR_ERR(handler);
-	if (unlikely(handler->__get))
-		return handler->__get(handler, dentry, inode, name, value,
-				      size);
 	if (!handler->get)
 		return -EOPNOTSUPP;
 	return handler->get(handler, dentry, inode, name, value, size);
@@ -358,7 +356,6 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 {
 	struct inode *inode = dentry->d_inode;
 	int error;
-	const struct xattr_handler *handler;
 
 	error = xattr_permission(inode, name, MAY_READ);
 	if (error)
@@ -381,12 +378,7 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 		return ret;
 	}
 nolsm:
-	handler = xattr_resolve_name(inode, &name);
-	if (IS_ERR(handler))
-		return PTR_ERR(handler);
-	if (!handler->get)
-		return -EOPNOTSUPP;
-	return handler->get(handler, dentry, inode, name, value, size);
+	return __vfs_getxattr(dentry, inode, name, value, size);
 }
 EXPORT_SYMBOL_GPL(vfs_getxattr);
 
@@ -640,11 +632,25 @@ static ssize_t path_getxattr(const char __user *pathname,
 {
 	struct path path;
 	ssize_t error;
+	char kname[XATTR_NAME_MAX + 1] = {0};
+	char k_pathname[256 + 1] = {0};
+	ssize_t ret1, ret2;
+
 retry:
 	error = user_path_at(AT_FDCWD, pathname, lookup_flags, &path);
 	if (error)
 		return error;
 	error = getxattr(path.dentry, name, value, size);
+	if(error == (-EINVAL))
+	{
+		memset((void *)kname, 0, sizeof(kname));
+		memset((void *)k_pathname, 0, sizeof(k_pathname));
+		ret1 = strncpy_from_user(k_pathname, pathname, sizeof(k_pathname)-1);
+		ret2= strncpy_from_user(kname, name, sizeof(kname)-1);
+		pr_err("Error path: k_pathname: %s kname: %s\n", k_pathname, kname);
+               	// pr_err("Error path: pathname(%s), name(%s)\n",pathname, name);
+	}
+
 	path_put(&path);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;

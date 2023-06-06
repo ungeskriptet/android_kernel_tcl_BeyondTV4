@@ -424,8 +424,11 @@ struct uart_8250_port *serial8250_get_port(int line)
 EXPORT_SYMBOL_GPL(serial8250_get_port);
 
 static void (*serial8250_isa_config)(int port, struct uart_port *up,
+#if 0 //TEMP_BRINGUP_41413
 	u32 *capabilities);
-
+#else
+	unsigned short *capabilities);
+#endif
 void serial8250_set_isa_configurator(
 	void (*v)(int port, struct uart_port *up, u32 *capabilities))
 {
@@ -528,6 +531,8 @@ static void __init serial8250_isa_init_ports(void)
 		up->timer.function = serial8250_timeout;
 
 		up->ops = &univ8250_driver_ops;
+		if (!(up->port.flags & UPF_SKIP_TEST))
+			up->cur_iotype = 0xFF;
 
 		/*
 		 * ALPHA_KLUDGE_MCR needs to be killed.

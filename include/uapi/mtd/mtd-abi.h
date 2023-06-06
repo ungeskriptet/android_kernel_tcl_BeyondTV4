@@ -184,6 +184,7 @@ struct otp_info {
 #define OTPGETREGIONINFO	_IOW('M', 15, struct otp_info)
 /* Lock a given range of user data (must be in mode %MTD_FILE_MODE_OTP_USER) */
 #define OTPLOCK			_IOR('M', 16, struct otp_info)
+#if 0
 /* Get ECC layout (deprecated) */
 #define ECCGETLAYOUT		_IOR('M', 17, struct nand_ecclayout_user)
 /* Get statistics about corrected/uncorrected errors */
@@ -204,6 +205,77 @@ struct otp_info {
  * without OOB, e.g., NOR flash.
  */
 #define MEMWRITE		_IOWR('M', 24, struct mtd_write_req)
+#else
+//==========================
+struct mtd_data_buf {
+	uint32_t start;
+	uint32_t length;
+	unsigned char __user *ptr;
+};
+struct mtd_data_buf64 {
+	uint64_t start;
+	uint64_t length;
+	unsigned char __user *ptr;
+};
+
+struct mtd_oob_buf64_ext {
+	__u64 start;
+	__u64 length;
+	unsigned char __user *ptr;
+};
+
+//==========================
+
+struct mtd_data_oob {
+	struct mtd_data_buf rtk_data;
+	struct mtd_oob_buf rtk_oob;
+};
+struct mtd_data_oob64 {
+	struct mtd_data_buf64 rtk_data;
+	struct mtd_oob_buf64_ext rtk_oob;
+};
+
+struct mtd_info_user_64 {
+	__u8 type;
+	__u32 flags;
+	__u64 size;	 // Total size of the MTD
+	__u32 erasesize;
+	__u32 writesize;
+	__u32 oobsize;   // Amount of OOB data per block (e.g. 16)
+	/* The below two fields are obsolete and broken, do not use them
+	 * (TODO: remove at some point) */
+	__u32 ecctype;
+	__u32 eccsize;
+};
+
+#define MEMWRITEDATAOOB			_IOWR('M', 17, struct mtd_data_oob)
+#define MEMREADDATAOOB			_IOWR('M', 18, struct mtd_data_oob)
+#define MEMRELOADBBT			_IO('M', 19)
+#define RTKMEMERASE				_IO('M', 20)
+#define MEMSETSYSINFO			_IOWR('M', 21, struct mtd_data_oob)
+#define MEMGETSYSINFO   		_IOWR('M', 22, struct mtd_data_oob)
+//#define ECCGETLAYOUT			_IOR('M', 23, struct nand_ecclayout)
+#define ECCGETSTATS				_IOR('M', 24, struct mtd_ecc_stats)
+#define MTDFILEMODE				_IO('M', 25)
+#define MEMERASE64				_IOW('M', 26, struct erase_info_user64)
+#define MEMWRITEOOB64			_IOWR('M', 27, struct mtd_oob_buf64)
+#define MEMREADOOB64			_IOWR('M', 28, struct mtd_oob_buf64)
+#define MEMGETINFO_64			_IOR('M', 29, struct mtd_info_user_64)
+#define MEMWRITEDATAOOB64		_IOWR('M', 30, struct mtd_data_oob64)
+#define MEMREADDATAOOB64		_IOWR('M', 31, struct mtd_data_oob64)
+#define MEMENABLESCRAMBLE		_IO('M', 32)
+#define MEMDISABLESCRAMBLE		_IO('M', 33)
+#define GETRBAPERCENTAGE		_IOR('M', 34, unsigned int)
+#define DISABLE_NF_WP			_IO('M', 35)
+#define MEMWRITE				_IOWR('M', 36, struct mtd_write_req)
+#define MEMISLOCKED				_IOR('M', 37, struct erase_info_user)
+#define MEMWRITEDATABOOTCODE 	_IOWR('M', 38, struct mtd_data_oob)
+#define MEMWRITEDATABOOTCODE64	_IOWR('M', 39, struct mtd_data_oob64)
+#define MEMERASEBOOTCODE 		_IOWR('M', 40, struct erase_info_user)	
+#define MEMERASEBOOTCODE64 		_IOWR('M', 41, struct erase_info_user64)
+#define MEMREADDATABOOTCODE		_IOWR('M', 42, struct mtd_data_oob)
+#define MEMWRITEPROFILE			_IO('M', 43)
+#endif
 
 /*
  * Obsolete legacy interface. Keep it in order not to break userspace

@@ -27,7 +27,11 @@ obj-$(CONFIG_FB_XGI)		+= xgifb/
 obj-$(CONFIG_USB_EMXX)		+= emxx_udc/
 obj-$(CONFIG_SPEAKUP)		+= speakup/
 obj-$(CONFIG_MFD_NVEC)		+= nvec/
-obj-$(CONFIG_ANDROID)		+= android/
+ifeq ($(CONFIG_ANDROID),y)
+	obj-$(CONFIG_ANDROID)		+= android/
+else
+	obj-$(CONFIG_ION)			+= android/
+endif
 obj-$(CONFIG_STAGING_BOARD)	+= board/
 obj-$(CONFIG_LTE_GDM724X)	+= gdm724x/
 obj-$(CONFIG_FIREWIRE_SERIAL)	+= fwserial/
@@ -50,3 +54,4 @@ obj-$(CONFIG_BCM2835_VCHIQ)	+= vc04_services/
 obj-$(CONFIG_CRYPTO_DEV_CCREE)	+= ccree/
 obj-$(CONFIG_DRM_VBOXVIDEO)	+= vboxvideo/
 obj-$(CONFIG_PI433)		+= pi433/
+obj-$(CONFIG_REALTEK_STAGING)		+= realtek/

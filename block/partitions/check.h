@@ -14,6 +14,11 @@ struct parsed_partitions {
 		sector_t from;
 		sector_t size;
 		int flags;
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+		int is_part_extended;
+		int part_serial;
+		int nparts;
+#endif
 		bool has_info;
 		struct partition_meta_info info;
 	} *parts;

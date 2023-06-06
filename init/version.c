@@ -49,3 +49,13 @@ const char linux_proc_banner[] =
 	"%s version %s"
 	" (" LINUX_COMPILE_BY "@" LINUX_COMPILE_HOST ")"
 	" (" LINUX_COMPILER ") %s\n";
+
+const char rtk_linux_git_version[] =
+        LINUX_GIT_VERSION;
+
+const char rtk_kdriver_git_version[] = "";
+
+const char rtk_linux_svn_version[] = 
+	LINUX_SVN_VERSION;
+
+const char rtk_kdriver_svn_version[] = "";

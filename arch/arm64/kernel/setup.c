@@ -242,6 +242,12 @@ static void __init request_standard_resources(void)
 
 u64 __cpu_logical_map[NR_CPUS] = { [0 ... NR_CPUS-1] = INVALID_HWID };
 
+#ifdef CONFIG_REALTEK_LOGBUF
+__attribute__((weak)) void rtdlog_parse_bufsize(char * str)
+{
+        return;
+}
+#endif
 void __init setup_arch(char **cmdline_p)
 {
 	pr_info("Boot CPU: AArch64 Processor [%08x]\n", read_cpuid_id());
@@ -259,13 +265,10 @@ void __init setup_arch(char **cmdline_p)
 
 	setup_machine_fdt(__fdt_pointer);
 
-	/*
-	 * Initialise the static keys early as they may be enabled by the
-	 * cpufeature code and early parameters.
-	 */
-	jump_label_init();
 	parse_early_param();
-
+#ifdef CONFIG_REALTEK_LOGBUF
+	rtdlog_parse_bufsize(boot_command_line);
+#endif
 	/*
 	 *  Unmask asynchronous aborts after bringing up possible earlycon.
 	 * (Report possible System Errors once we can report this occurred)
@@ -308,9 +311,6 @@ void __init setup_arch(char **cmdline_p)
 	cpu_read_bootcpu_ops();
 	smp_init_cpus();
 	smp_build_mpidr_hash();
-
-	/* Init percpu seeds for random tags after cpus are set up. */
-	kasan_init_tags();
 
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
 	/*

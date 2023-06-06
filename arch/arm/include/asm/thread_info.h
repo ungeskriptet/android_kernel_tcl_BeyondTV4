@@ -16,7 +16,11 @@
 #include <asm/fpstate.h>
 #include <asm/page.h>
 
+#ifndef CONFIG_KASAN
 #define THREAD_SIZE_ORDER	1
+#else
+#define THREAD_SIZE_ORDER	2
+#endif
 #define THREAD_SIZE		(PAGE_SIZE << THREAD_SIZE_ORDER)
 #define THREAD_START_SP		(THREAD_SIZE - 8)
 
@@ -148,6 +152,9 @@ extern int vfp_restore_user_hwstate(struct user_vfp *,
 #define TIF_USING_IWMMXT	17
 #define TIF_MEMDIE		18	/* is terminating due to OOM killer */
 #define TIF_RESTORE_SIGMASK	20
+#ifdef CONFIG_REALTEK_SCHED_LOG
+#define TIF_IS_PREEMPT     26 /* If set, load watch registers */
+#endif // CONFIG_REALTEK_SCHED_LOG
 
 #define _TIF_SIGPENDING		(1 << TIF_SIGPENDING)
 #define _TIF_NEED_RESCHED	(1 << TIF_NEED_RESCHED)

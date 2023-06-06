@@ -43,6 +43,9 @@ struct usb_ohci_pdata {
 	/* Turn on only VBUS suspend power and hotplug detection,
 	 * turn off everything else */
 	void (*power_suspend)(struct platform_device *pdev);
+
+	/* RTK defined */
+	int id;
 };
 
 #endif /* __USB_CORE_OHCI_PDRIVER_H */

@@ -73,30 +73,44 @@ static int erase_write (struct mtd_info *mtd, unsigned long pos,
 	/*
 	 * First, let's erase the flash block.
 	 */
+	if (mtd->type==MTD_DATAFLASH||mtd->type==MTD_NORFLASH || mtd->type == MTD_NANDFLASH || strstr(mtd->name, "nand") ){	//Nand flash
 
-	init_waitqueue_head(&wait_q);
-	erase.mtd = mtd;
-	erase.callback = erase_callback;
-	erase.addr = pos;
-	erase.len = len;
-	erase.priv = (u_long)&wait_q;
-
-	set_current_state(TASK_INTERRUPTIBLE);
-	add_wait_queue(&wait_q, &wait);
-
-	ret = mtd_erase(mtd, &erase);
-	if (ret) {
-		set_current_state(TASK_RUNNING);
+		erase.mtd = mtd;
+		erase.addr = (pos/mtd->erasesize)*mtd->erasesize;
+		if(!len)
+			len = mtd->erasesize; 
+		erase.len = len;
+		//printk("%s %d pos %lx %d \n",__FUNCTION__,__LINE__,pos,len);
+		ret = mtd_erase(mtd, &erase);
+		if (ret) {
+			printk (KERN_WARNING "MTD_NAND_WITHOUT_WAIT_QUEUE: mtdblock:erase nand of region [0x%lx, 0x%x] "
+			"on \"%s\" failed\n", pos, len, mtd->name);
+			return ret;
+		}
+	}else{		//Nor flash
+		init_waitqueue_head(&wait_q);
+		erase.mtd = mtd;
+		erase.callback = erase_callback;
+		erase.addr = pos;
+		erase.len = len;
+		erase.priv = (u_long)&wait_q;
+		
+		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue(&wait_q, &wait);
+		
+		ret = mtd_erase(mtd, &erase);
+		if (ret) {
+			set_current_state(TASK_RUNNING);
+			remove_wait_queue(&wait_q, &wait);
+			printk (KERN_WARNING "mtdblock: erase of region [0x%lx, 0x%x] "
+					     "on \"%s\" failed\n",
+				pos, len, mtd->name);
+			return ret;
+		}
+		
+		schedule();  /* Wait for erase to finish. */
 		remove_wait_queue(&wait_q, &wait);
-		printk (KERN_WARNING "mtdblock: erase of region [0x%lx, 0x%x] "
-				     "on \"%s\" failed\n",
-			pos, len, mtd->name);
-		return ret;
 	}
-
-	schedule();  /* Wait for erase to finish. */
-	remove_wait_queue(&wait_q, &wait);
-
 	/*
 	 * Next, write the data to flash.
 	 */

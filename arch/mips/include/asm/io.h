@@ -542,6 +542,8 @@ BUILDSTRING(q, u64)
 
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
 #define mmiowb() wmb()
+#elif defined(CONFIG_CPU_RLX)
+#define mmiowb() wmb()
 #else
 /* Depends on MIPS II instruction set */
 #define mmiowb() asm volatile ("sync" ::: "memory")

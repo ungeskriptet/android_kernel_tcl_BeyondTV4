@@ -4,7 +4,6 @@
 menu "USB Physical Layer drivers"
 
 config USB_PHY
-	select EXTCON
 	def_bool n
 
 config USB_OTG_WAKELOCK

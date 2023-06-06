@@ -536,6 +536,11 @@ int kthread_stop(struct task_struct *k)
 }
 EXPORT_SYMBOL(kthread_stop);
 
+/*RTK_patch: for watchdog tick thread*/
+#if defined(CONFIG_REALTEK_WATCHDOG) || defined(CONFIG_RTK_KDRV_WATCHDOG)
+extern int hw_watchdog(void *p);
+#endif
+
 int kthreadd(void *unused)
 {
 	struct task_struct *tsk = current;
@@ -548,6 +553,11 @@ int kthreadd(void *unused)
 
 	current->flags |= PF_NOFREEZE;
 	cgroup_init_kthreadd();
+
+/*RTK_patch: for watchdog tick thread*/
+#if defined(CONFIG_REALTEK_WATCHDOG) || defined(CONFIG_RTK_KDRV_WATCHDOG)
+	kernel_thread(hw_watchdog, NULL, CLONE_FS | CLONE_SIGHAND);
+#endif
 
 	for (;;) {
 		set_current_state(TASK_INTERRUPTIBLE);

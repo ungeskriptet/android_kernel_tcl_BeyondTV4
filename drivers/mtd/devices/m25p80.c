@@ -26,6 +26,9 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/spi-nor.h>
+#ifdef CONFIG_SPI_SHEIPA
+#include "../../spi/spi-sheipa.h"
+#endif
 
 #define	MAX_CMD_SIZE		6
 struct m25p {
@@ -297,6 +300,13 @@ static int m25p_probe(struct spi_device *spi)
 	ret = spi_nor_scan(nor, flash_name, &hwcaps);
 	if (ret)
 		return ret;
+
+#ifdef CONFIG_SPI_SHEIPA
+	ret = sheipa_spi_config(spi, nor);
+
+	if (ret)
+		return ret;
+#endif
 
 	return mtd_device_register(&nor->mtd, data ? data->parts : NULL,
 				   data ? data->nr_parts : 0);

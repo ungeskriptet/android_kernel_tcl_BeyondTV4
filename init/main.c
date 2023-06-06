@@ -89,16 +89,61 @@
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
 
+#include <linux/auth.h>
+#include <linux/pageremap.h>
+
 #include <asm/io.h>
 #include <asm/bugs.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
+#ifdef CONFIG_ARCH_RTK287O
+#include <asm/sha_sw.h>
+#include <asm/big_int.h>
+#endif
+#ifdef CONFIG_PM_RESUME_TIME
+#include <linux/suspend.h>
+#include <linux/sched/clock.h>
+#endif
 
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
 extern void radix_tree_init(void);
+#ifdef CONFIG_REALTEK_LOGBUF
+__attribute__((weak)) void rtdlog_setup(void)
+{
+        return;
+}
+__attribute__((weak)) int thread_logbuf_reader(void* p)
+{
+        return -1;
+}
+#endif
+extern void __init hw_monitor_early_init(void);
+
+#ifdef CONFIG_RTK_KDRV_IR_TABLE_EARLY_INIT
+extern void __init venus_ir_input_early_init(void);
+#endif
+
+#define LAST_IMAGE_SIZE 4*1024*1024
+#ifdef CONFIG_ARCH_RTK287O
+#define SIGNATURE_ADDR 0xC00F0000
+#define PUB_KEY_ADDR   0xC00F0600
+#define SIGNATURE_SIZE 0x100
+#define PUB_KEY_SIZE   0x200
+#endif
+extern phys_addr_t __initdata reserved_dvr_start;
+extern phys_addr_t __initdata reserved_dvr_size;
+extern phys_addr_t __initdata reserved_last_image_start;
+extern phys_addr_t __initdata reserved_last_image_size;
+extern void *pAnimation;
+extern void *pAnimation_1;
+extern void *pLastImage;
+
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+void *dma_get_allocator(struct device *dev);
+#endif
 
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
@@ -133,7 +178,9 @@ static char *initcall_command_line;
 
 static char *execute_command;
 static char *ramdisk_execute_command;
-
+#ifdef CONFIG_ARCH_RTK287O
+static char temp_cmdline[COMMAND_LINE_SIZE];
+#endif
 /*
  * Used to generate warnings if static_key manipulation functions are used
  * before jump_label_init is called.
@@ -357,7 +404,19 @@ static const unsigned int setup_max_cpus = NR_CPUS;
 static inline void setup_nr_cpu_ids(void) { }
 static inline void smp_prepare_cpus(unsigned int maxcpus) { }
 #endif
+#ifdef CONFIG_ARCH_RTK287O
+void reverse_signature( unsigned char * pSignature )
+{
+    unsigned char temp;
+    unsigned int i;
 
+    for( i = 0; i < 128; i ++ )  {
+        temp = pSignature[i];
+        pSignature[i] = pSignature[255 - i];
+        pSignature[255 - i] = temp;
+    }
+}
+#endif
 /*
  * We need to store the untouched command line for future reference.
  * We also need to store the touched command line since the parameter
@@ -458,18 +517,81 @@ void __init parse_early_options(char *cmdline)
 	parse_args("early options", cmdline, NULL, 0, 0, 0, NULL,
 		   do_early_param);
 }
+#ifdef CONFIG_ARCH_RTK287O
+static int __init kernel_cmd_verify(void)
+{
+	char signature[SIGNATURE_SIZE], *param_raw, *hash1;
+	unsigned int count = 0, raw_len, hash2, ret = 0;
+	unsigned char RSAOut[256];
+	SwSHA256Ctx sha256_ctx;
+	char RSAPublicKey[256];
+	char sig_char = 0;
+	// check signature
+	ret = strcmp((unsigned char*)(SIGNATURE_ADDR+SIGNATURE_SIZE),M4KMDMAGIC);
+	if(ret)
+		return 0;
+	param_raw = strstr(temp_cmdline,"dm");
+	raw_len = param_raw - temp_cmdline - 1;
+	// calculate hash value
+	SWsha256_init(&sha256_ctx);
+        SWsha256_update(&sha256_ctx, temp_cmdline, raw_len);
+	hash1=SWsha256_final(&sha256_ctx);	
 
+	for(count = 0; count < PUB_KEY_SIZE; count+=2)
+	{
+		sig_char = *(char*)(PUB_KEY_ADDR + count);
+		if(sig_char < 0x3A)
+		{
+			sig_char -= 0x30;
+		}
+		else if(sig_char < 0x61)
+		{
+			sig_char -= 0x37;
+		}
+		else
+		{
+			sig_char -= 0x57;
+		}
+		RSAPublicKey[(count/2)]= sig_char << 4;
+		sig_char = *(char*)(PUB_KEY_ADDR + count + 1);
+		if(sig_char < 0x3A)
+		{
+			sig_char -= 0x30;
+		}
+		else if(sig_char < 0x61)
+		{
+			sig_char -= 0x37;
+		}
+		else
+		{
+			sig_char -= 0x57;
+		}	
+		RSAPublicKey[(count/2)] |= sig_char;
+	}
+	reverse_signature(RSAPublicKey);
+	memcpy(signature,SIGNATURE_ADDR,SIGNATURE_SIZE);
+	reverse_signature(signature);
+	hash2 = do_sw_RSA(signature, RSAPublicKey, RSAOut);
+	if(!hash2)
+		panic("RSA verify Fail \n");
+	ret = memcmp(hash1, hash2, 32);
+	if(ret)
+		panic("Kernel Parameter Verify Fail \n");
+	return 0;
+}
+postcore_initcall(kernel_cmd_verify);
+#endif
 /* Arch code calls this early on, or if not, just before other parsing. */
 void __init parse_early_param(void)
 {
 	static int done __initdata;
 	static char tmp_cmdline[COMMAND_LINE_SIZE] __initdata;
-
 	if (done)
 		return;
 
 	/* All fall through to do_early_param. */
 	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
+	
 	parse_early_options(tmp_cmdline);
 	done = 1;
 }
@@ -488,31 +610,6 @@ void __init __weak thread_stack_cache_init(void)
 
 void __init __weak mem_encrypt_init(void) { }
 
-/* Report memory auto-initialization states for this boot. */
-static void __init report_meminit(void)
-{
-	const char *stack;
-
-	if (IS_ENABLED(CONFIG_INIT_STACK_ALL_PATTERN))
-		stack = "all(pattern)";
-	else if (IS_ENABLED(CONFIG_INIT_STACK_ALL_ZERO))
-		stack = "all(zero)";
-	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF_ALL))
-		stack = "byref_all(zero)";
-	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF))
-		stack = "byref(zero)";
-	else if (IS_ENABLED(CONFIG_GCC_PLUGIN_STRUCTLEAK_USER))
-		stack = "__user(zero)";
-	else
-		stack = "off";
-
-	pr_info("mem auto-init: stack:%s, heap alloc:%s, heap free:%s\n",
-		stack, want_init_on_alloc(GFP_KERNEL) ? "on" : "off",
-		want_init_on_free() ? "on" : "off");
-	if (want_init_on_free())
-		pr_info("mem auto-init: clearing system memory may take some time...\n");
-}
-
 /*
  * Set up kernel memory allocators
  */
@@ -523,7 +620,6 @@ static void __init mm_init(void)
 	 * bigger than MAX_ORDER unless SPARSEMEM.
 	 */
 	page_ext_init_flatmem();
-	report_meminit();
 	mem_init();
 	kmem_cache_init();
 	pgtable_init();
@@ -535,11 +631,17 @@ static void __init mm_init(void)
 	pti_init();
 }
 
+__attribute__((weak)) void __init rtk_arm_wrapper_init (void) 
+{
+    return;
+}
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
-
+#ifdef CONFIG_PM_RESUME_TIME
+        pm_resume_set_starttime(POWER_ON_AC, PM_STAGE_KERNEL,sched_clock());
+#endif
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -557,6 +659,7 @@ asmlinkage __visible void __init start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
+
 	/*
 	 * Set up the the initial canary and entropy after arch
 	 * and after adding latent and command line entropy.
@@ -565,6 +668,10 @@ asmlinkage __visible void __init start_kernel(void)
 	add_device_randomness(command_line, strlen(command_line));
 	boot_init_stack_canary();
 	mm_init_cpumask(&init_mm);
+	hw_monitor_early_init();/*init rtk hw_monitor*/
+ #ifdef CONFIG_RTK_KDRV_IR_TABLE_EARLY_INIT
+        venus_ir_input_early_init();/*init key mapping table*/
+ #endif
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
@@ -578,6 +685,9 @@ asmlinkage __visible void __init start_kernel(void)
 	/* parameters may set static keys */
 	jump_label_init();
 	parse_early_param();
+#ifdef CONFIG_ARCH_RTK287O
+	strlcpy(temp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
+#endif
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
 				  __stop___param - __start___param,
@@ -596,7 +706,6 @@ asmlinkage __visible void __init start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
-
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
@@ -641,6 +750,7 @@ asmlinkage __visible void __init start_kernel(void)
 	softirq_init();
 	timekeeping_init();
 	time_init();
+	rtk_arm_wrapper_init();
 	sched_clock_postinit();
 	printk_safe_init();
 	perf_event_init();
@@ -726,6 +836,7 @@ asmlinkage __visible void __init start_kernel(void)
 	arch_post_acpi_subsys_init();
 	sfi_init_late();
 
+	//kernel_cmd_verify(temp_cmdline);
 	if (efi_enabled(EFI_RUNTIME_SERVICES)) {
 		efi_free_boot_services();
 	}
@@ -1032,6 +1143,12 @@ static int __ref kernel_init(void *unused)
 	system_state = SYSTEM_RUNNING;
 	numa_default_policy();
 
+#ifdef CONFIG_REALTEK_LOGBUF
+        kthread_run(thread_logbuf_reader,NULL,"RtdLogReader");
+#endif
+#ifdef CONFIG_PM_RESUME_TIME
+        pm_resume_set_endtime(POWER_ON_AC, PM_STAGE_KERNEL,sched_clock());
+#endif
 	rcu_end_inkernel_boot();
 
 	if (ramdisk_execute_command) {
@@ -1115,7 +1232,14 @@ static noinline void __init kernel_init_freeable(void)
 		ramdisk_execute_command = "/init";
 
 	if (sys_access((const char __user *) ramdisk_execute_command, 0) != 0) {
+#ifdef CONFIG_ANDROID
+		ramdisk_execute_command = "/init";
+#else
 		ramdisk_execute_command = NULL;
+#endif
+#ifdef CONFIG_SECURITY_SELINUX
+		root_mountflags &= ~MS_RDONLY;
+#endif
 		prepare_namespace();
 	}
 
@@ -1131,3 +1255,37 @@ static noinline void __init kernel_init_freeable(void)
 	integrity_load_keys();
 	load_default_modules();
 }
+
+/* RTK_patch: handle the power on video/logo/audio memory issue */
+static int __init reserve_dvr_memory(void)
+{
+	pr_info("[POV] reserve_dvr_memory\n");
+
+	/*
+	 * if bootcode assign last_image= in kernel cmdline, use bootcode's memory setting.
+	 * if kernel_cmd doesn't exist last_image=, last image buffer use 4MB after decode buffer region.
+	 */
+	if (reserved_dvr_size) {
+		pr_info("[POV] reserved_dvr_start = 0x%x\n",(unsigned int)reserved_dvr_start);
+		pAnimation = dvr_malloc_specific_addr(64*1024*1024,
+							GFP_DCU1, reserved_dvr_start);
+		pAnimation_1 = dvr_malloc_specific_addr(reserved_dvr_size - 64*1024*1024,
+							GFP_DCU1, reserved_dvr_start + 0x04000000);
+
+		pr_info("[POV] pAnimation(%p/%p)\n", pAnimation, pAnimation_1);
+
+#ifdef CONFIG_LG_SNAPSHOT_BOOT
+		register_cma_forbidden_region(__phys_to_pfn(reserved_dvr_start), reserved_dvr_size);
+#endif
+		if (reserved_last_image_size) {
+			pLastImage = dvr_malloc_specific_addr(reserved_last_image_size,
+							GFP_DCU1, reserved_last_image_start);
+		}
+		else {
+			pLastImage = dvr_malloc_specific_addr(LAST_IMAGE_SIZE,
+							GFP_DCU1, reserved_dvr_start+reserved_dvr_size);
+		}
+	}
+	return 0;
+}
+postcore_initcall(reserve_dvr_memory);

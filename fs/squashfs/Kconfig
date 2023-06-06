@@ -222,3 +222,11 @@ config SQUASHFS_FRAGMENT_CACHE_SIZE
 
 	  Note there must be at least one cached fragment.  Anything
 	  much more than three will probably not make much difference.
+
+config SQUASHFS_TV043
+	bool "Squashfs TV043 support"
+	depends on SQUASHFS
+	help
+	  Saying Y here includes support for uid/gic attributes .
+
+	  If unsure, say N.

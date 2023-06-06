@@ -57,6 +57,7 @@
 #include <linux/kthread.h>
 #include <linux/mutex.h>
 #include <linux/utsname.h>
+#include <linux/suspend.h>
 
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
@@ -78,6 +79,11 @@
 
 #define DRV_NAME "usb-storage"
 
+#ifdef CONFIG_USB_STORAGE_UMOUNT_BEFORE_SUSPEND
+#include <linux/notifier.h>
+#include <linux/suspend.h>
+#endif
+
 /* Some informational data */
 MODULE_AUTHOR("Matthew Dharm <mdharm-usb@one-eyed-alien.net>");
 MODULE_DESCRIPTION("USB Mass Storage driver for Linux");
@@ -91,6 +97,10 @@ static char quirks[128];
 module_param_string(quirks, quirks, sizeof(quirks), S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(quirks, "supplemental list of device IDs and their quirks");
 
+
+int get_usb_stroage_mount_path_one(char *buf, size_t size);
+static LIST_HEAD(us_list_head);
+static DEFINE_MUTEX(us_list_head_mutex);
 
 /*
  * The entries in this table correspond, line for line,
@@ -230,7 +240,6 @@ int usb_stor_reset_resume(struct usb_interface *iface)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usb_stor_reset_resume);
-
 #endif /* CONFIG_PM */
 
 /*
@@ -908,8 +917,17 @@ static void usb_stor_scan_dwork(struct work_struct *work)
 	struct us_data *us = container_of(work, struct us_data,
 			scan_dwork.work);
 	struct device *dev = &us->pusb_intf->dev;
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	char port_structure[64];
+#endif
 
 	dev_dbg(dev, "starting scan\n");
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	/* strcpy(us_to_host(us)->port_structure, us->pusb_dev->devpath); */
+	sprintf(port_structure, "%d-%s", us->pusb_dev->bus->busnum, us->pusb_dev->devpath);
+	strcpy(us_to_host(us)->port_structure, port_structure);
+#endif
 
 	/* For bulk-only devices, determine the max LUN value */
 	if (us->protocol == USB_PR_BULK &&
@@ -1097,6 +1115,10 @@ void usb_stor_disconnect(struct usb_interface *intf)
 {
 	struct us_data *us = usb_get_intfdata(intf);
 
+	mutex_lock(&us_list_head_mutex);
+	list_del(&us->us_data_list);
+	mutex_unlock(&us_list_head_mutex);
+
 	quiesce_and_remove_host(us);
 	release_everything(us);
 }
@@ -1152,8 +1174,155 @@ static int storage_probe(struct usb_interface *intf,
 	/* No special transport or protocol settings in the main module */
 
 	result = usb_stor_probe2(us);
+
+	mutex_lock(&us_list_head_mutex);
+	list_add_tail(&us->us_data_list, &us_list_head);
+	mutex_unlock(&us_list_head_mutex);
+
+	us->pusb_dev->persist_enabled = 0;
+
 	return result;
 }
+
+
+extern int get_disk_mount_path_one(struct scsi_device *sdev, char *buf, size_t size);
+int get_usb_storage_mount_path_one(char *buf, size_t size) {
+	struct us_data *us;
+	struct Scsi_Host *shost;
+	struct scsi_device *sdev;
+	int ret = 0;
+
+	if (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&us_list_head_mutex);
+	list_for_each_entry(us, &us_list_head, us_data_list) {
+		shost = us_to_host(us);
+		shost_for_each_device(sdev, shost) {
+			ret = get_disk_mount_path_one(sdev, buf, size);
+			if (!ret) {
+				scsi_device_put(sdev);
+				goto done;
+			}
+		}
+	}
+done:
+	mutex_unlock(&us_list_head_mutex);
+	return ret;
+}
+EXPORT_SYMBOL(get_usb_storage_mount_path_one);
+
+extern void announce_disk_parts_to_user(struct scsi_device *sdev, enum kobject_action action);
+void mount_umount_usb_storage(enum kobject_action action)
+{
+	struct us_data *us;
+	struct Scsi_Host *shost;
+	struct scsi_device *sdev;
+
+	mutex_lock(&us_list_head_mutex);
+	list_for_each_entry(us, &us_list_head, us_data_list) {
+		if (us->pusb_dev->dev.power.is_suspended) {
+			dev_warn(&us->pusb_dev->dev, "is in suspend state, skip...\n");
+			continue;
+		}
+		shost = us_to_host(us);
+		shost_for_each_device(sdev, shost) {
+			announce_disk_parts_to_user(sdev, action); /* send uevent with remove action for each partition of disk */
+		}
+	}
+	mutex_unlock(&us_list_head_mutex);
+}
+EXPORT_SYMBOL(mount_umount_usb_storage);
+
+
+extern unsigned long wait_umount_complete_timeout(struct scsi_device *sdev, long timeout);
+unsigned long wait_umount_usb_storage_complete_timeout(long timeout)
+{
+	struct us_data *us;
+	struct Scsi_Host *shost;
+	struct scsi_device *sdev;
+	unsigned long expire, remain_jiffies = ULONG_MAX;
+
+	if (timeout < 0)
+		return remain_jiffies;
+
+	timeout = timeout ? : MAX_SCHEDULE_TIMEOUT;
+	pr_info("%s: timeout=0x%lx\n", __func__, timeout);
+	expire = timeout + jiffies;
+
+	mutex_lock(&us_list_head_mutex);
+	list_for_each_entry(us, &us_list_head, us_data_list) {
+		shost = us_to_host(us);
+		shost_for_each_device(sdev, shost) {
+			remain_jiffies = wait_umount_complete_timeout(sdev, expire - jiffies);
+			if (!remain_jiffies) {
+				scsi_device_put(sdev); // If we break out of loop, we should call scsi_device_put to decrease the reference.
+				goto out;
+			}
+		}
+	}
+	out:
+	mutex_unlock(&us_list_head_mutex);
+
+	return remain_jiffies;
+}
+
+
+extern void usb_forced_unbind_intf(struct usb_interface *intf);
+static void __maybe_unused usb_unbind_all_storage_intf(void)
+{
+	struct us_data *us, *next;
+
+	mutex_lock(&us_list_head_mutex);
+	list_for_each_entry_safe(us, next, &us_list_head, us_data_list) {
+		mutex_unlock(&us_list_head_mutex);
+		usb_lock_device(us->pusb_dev);
+		usb_forced_unbind_intf(us->pusb_intf);
+		usb_unlock_device(us->pusb_dev);
+		mutex_lock(&us_list_head_mutex);
+	}
+	mutex_unlock(&us_list_head_mutex);
+}
+
+
+#ifdef CONFIG_USB_STORAGE_UMOUNT_BEFORE_SUSPEND
+int storage_pm_event(struct notifier_block *this, unsigned long event, void *ptr)
+{
+	unsigned long start = 0, remain_jiffies = 0;
+
+	switch (event) {
+	case PM_SUSPEND_PREPARE:
+		pr_info("%s: [usb-storage] PM_SUSPEND_PREPARE event !!\n", __func__);
+		mount_umount_usb_storage(KOBJ_REMOVE);
+
+		start = jiffies;
+		remain_jiffies = wait_umount_usb_storage_complete_timeout(0);
+		if (!remain_jiffies)
+			pr_err("[usb-storage] wait umount usb storage timeout. !!! \n");
+
+		pr_info("[usb-storage] wait about %lu msec \n", (jiffies - start) * 1000 / HZ);
+#if 0
+		/* Now we unbind interface driver directly. */
+		usb_unbind_all_storage_intf();
+#endif
+		break;
+	case PM_POST_SUSPEND:
+		pr_info("%s: [usb-storage] PM_POST_SUSPEND event !!\n", __func__);
+		mount_umount_usb_storage(KOBJ_ADD);
+		break;
+	case PM_POST_SUSPEND_USER:
+		pr_info("%s: [usb-storage] PM_POST_SUSPEND_USER event !!\n", __func__);
+		mount_umount_usb_storage(KOBJ_ADD);
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
+struct notifier_block storage_pm_notifier = {
+	.notifier_call = storage_pm_event,
+};
+#endif
+
 
 static struct usb_driver usb_storage_driver = {
 	.name =		DRV_NAME,
@@ -1167,6 +1336,31 @@ static struct usb_driver usb_storage_driver = {
 	.id_table =	usb_storage_usb_ids,
 	.supports_autosuspend = 1,
 	.soft_unbind =	1,
+#ifdef CONFIG_USB_STORAGE_UMOUNT_BEFORE_SUSPEND
+	.pm_notifier = &storage_pm_notifier,
+#endif
 };
 
+#ifdef CONFIG_USER_INITCALL_USB
+int usb_storage_driver_init(void)
+{
+	if (usb_storage_driver.pm_notifier)
+		register_pm_notifier(usb_storage_driver.pm_notifier);
+
+	usb_stor_host_template_init(&usb_stor_host_template, DRV_NAME, THIS_MODULE);
+	return usb_register(&usb_storage_driver);
+}
+
+static void __exit usb_storage_driver_exit(void)
+{
+	if (usb_storage_driver.pm_notifier)
+		unregister_pm_notifier(usb_storage_driver.pm_notifier);
+
+	return usb_deregister(&usb_storage_driver);
+}
+
+user_initcall_grp("USB", usb_storage_driver_init);
+module_exit(usb_storage_driver_exit)
+#else
 module_usb_stor_driver(usb_storage_driver, usb_stor_host_template, DRV_NAME);
+#endif

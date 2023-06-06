@@ -248,6 +248,7 @@ source "drivers/base/regmap/Kconfig"
 config DMA_SHARED_BUFFER
 	bool
 	default n
+	select ANON_INODES
 	select IRQ_WORK
 	help
 	  This option enables the framework for buffer-sharing between
@@ -279,6 +280,19 @@ config DMA_CMA
 	  If unsure, say "n".
 
 if  DMA_CMA
+
+config CMA_RTK_ALLOCATOR
+	bool "Use RTK blueprint"
+	default y
+	help
+	  Use RTK blueprint to replace bitmap allocator.
+
+config CMA_FIRST_POLICY
+	bool "Use CMA memory first"
+	default y
+	help
+	  Use CMA memory first if user allocate movable memory.
+
 comment "Default contiguous memory area size:"
 
 config CMA_SIZE_MBYTES

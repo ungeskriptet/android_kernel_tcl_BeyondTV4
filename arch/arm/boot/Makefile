@@ -70,6 +70,15 @@ $(obj)/zImage-dtb:	$(obj)/zImage $(DTB_OBJS) FORCE
 
 endif
 
+
+# RTK_patch
+targets += $(dtb-y)
+# Rule to build device tree blobs
+$(obj)/%.dtb: $(src)/dts/%.dts FORCE
+        $(call if_changed_dep,dtc)
+$(obj)/dtbs: $(addprefix $(obj)/, $(dtb-y))
+clean-files := *.dtb
+
 ifneq ($(LOADADDR),)
   UIMAGE_LOADADDR=$(LOADADDR)
 else

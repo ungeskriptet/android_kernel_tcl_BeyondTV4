@@ -28,6 +28,9 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #include <openssl/engine.h>
+#include <openssl/aes.h>
+#include<sys/time.h>
+#include<unistd.h>
 
 /*
  * Use CMS if we have openssl-1.0.0 or newer available - otherwise we have to
@@ -60,11 +63,18 @@ struct module_signature {
 	uint8_t		key_id_len;	/* Length of key identifier [0] */
 	uint8_t		__pad[3];
 	uint32_t	sig_len;	/* Length of signature data */
+        uint8_t      common_key_index;
+        uint8_t      common_iv_index;
+        uint8_t      encrypted;
+        uint8_t      __pad1;
+        uint8_t      key[16];
+        uint8_t      iv[16];
 };
+
 
 #define PKEY_ID_PKCS7 2
 
-static char magic_number[] = "~Module signature appended~\n";
+static char magic_number[] = "~Module new version signature appended~\n";
 
 static __attribute__((noreturn))
 void format(void)
@@ -167,6 +177,93 @@ static EVP_PKEY *read_private_key(const char *private_key_name)
 	return private_key;
 }
 
+static void do_encrypt_module_file(unsigned char *key, unsigned char *iv, BIO *inb, BIO *outb)
+{
+    int n = 0;
+    unsigned char buf[4096];
+    unsigned char sb[16];
+    int sb_len = 0;
+    unsigned char last_iv[16];
+    AES_KEY aes;
+
+    memcpy(last_iv, iv, 16);
+
+    if(AES_set_encrypt_key(key, 128, &aes) < 0)
+        ERR(1, "%s", "AES_set_encrypt_key fail\n");
+
+    while ((n = BIO_read(inb, buf, sizeof(buf))) > 0) {
+        unsigned char *bufp = buf;
+        int align_len = 0;
+        if(sb_len) {
+            if((sb_len + n) < 16) {
+                memcpy(sb + sb_len, bufp, n);
+                sb_len += n;
+                continue;
+            } else {
+                memcpy(sb + sb_len, bufp, 16 - sb_len);
+                n -= (16 - sb_len);
+                bufp += (16 - sb_len);
+                AES_cbc_encrypt(sb, sb, 16, &aes, last_iv, AES_ENCRYPT);
+                ERR(BIO_write(outb, sb, 16) < 0, "%s %d", __FUNCTION__, __LINE__); 
+                memcpy(last_iv, sb, 16);
+                sb_len = 0;
+            }
+        }
+        align_len = n - (n & 0xF);
+        if(align_len) {
+            AES_cbc_encrypt(bufp, bufp, align_len, &aes, last_iv, AES_ENCRYPT);
+            memcpy(last_iv, bufp + align_len - 16, 16);
+            ERR(BIO_write(outb, bufp, align_len) < 0, "%s %d", __FUNCTION__, __LINE__);
+            n -= align_len;
+            bufp += align_len;
+        }
+        if(n) {
+            sb_len = n;
+            memcpy(sb, bufp, n);
+        }
+    }
+    if(sb_len) {
+           ERR(BIO_write(outb, sb, sb_len) < 0, "%s %d", __FUNCTION__, __LINE__); 
+    }
+    
+}
+
+
+static int get_common_key_table(char *key_table_path, unsigned char *key_buf, unsigned int key_len)
+{
+    int ret = 0;
+    int n = 0;
+    BIO *inb = BIO_new_file(key_table_path, "rb");
+    if(!inb)
+        return -1;
+    
+    n = BIO_read(inb, key_buf, key_len);
+    BIO_free(inb);
+    if(n != key_len)
+        ret = -1;
+    return ret;
+}
+
+
+static void make_security_key(struct module_signature *pms, 
+                                        unsigned char *key_table, unsigned int key_table_len)
+{
+    unsigned int key_index = pms->common_key_index % (key_table_len - 16);
+    unsigned int iv_index = pms->common_iv_index % (key_table_len - 16);
+    unsigned char common_iv[16] = {0};
+    AES_KEY aes;
+
+    if(AES_set_encrypt_key(key_table + key_index, 128, &aes) < 0)
+        ERR(1, "%s", "AES_set_encrypt_key fail\n");
+
+    memcpy(common_iv, key_table + iv_index, 16);
+    AES_cbc_encrypt(pms->key, pms->key, 16, &aes, common_iv, AES_ENCRYPT);
+    memcpy(common_iv, key_table + iv_index, 16);
+    AES_cbc_encrypt(pms->iv, pms->iv, 16, &aes, common_iv, AES_ENCRYPT);
+
+}
+
+
 static X509 *read_x509(const char *x509_name)
 {
 	unsigned char buf[2];
@@ -208,14 +305,17 @@ static X509 *read_x509(const char *x509_name)
 
 int main(int argc, char **argv)
 {
-	struct module_signature sig_info = { .id_type = PKEY_ID_PKCS7 };
+	struct module_signature sig_info = { .id_type = PKEY_ID_PKCS7};
 	char *hash_algo = NULL;
 	char *private_key_name = NULL, *raw_sig_name = NULL;
+        char *module_enc_key_name = NULL;
 	char *x509_name, *module_name, *dest_name;
 	bool save_sig = false, replace_orig;
 	bool sign_only = false;
 	bool raw_sig = false;
+	bool need_encrypt = false;
 	unsigned char buf[4096];
+        unsigned char common_key_table[128];
 	unsigned long module_size, sig_size;
 	unsigned int use_signed_attrs;
 	const EVP_MD *digest_algo;
@@ -242,8 +342,9 @@ int main(int argc, char **argv)
 #endif
 
 	do {
-		opt = getopt(argc, argv, "sdpk");
+		opt = getopt(argc, argv, "esdpk");
 		switch (opt) {
+		case 'e': need_encrypt = true; break;
 		case 's': raw_sig = true; break;
 		case 'p': save_sig = true; break;
 		case 'd': sign_only = true; save_sig = true; break;
@@ -257,7 +358,7 @@ int main(int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
-	if (argc < 4 || argc > 5)
+	if (argc < 5 || argc > 6)
 		format();
 
 	if (raw_sig) {
@@ -268,9 +369,10 @@ int main(int argc, char **argv)
 		private_key_name = argv[1];
 	}
 	x509_name = argv[2];
-	module_name = argv[3];
-	if (argc == 5 && strcmp(argv[3], argv[4]) != 0) {
-		dest_name = argv[4];
+        module_enc_key_name = argv[3];
+	module_name = argv[4];
+	if (argc == 6 && strcmp(argv[4], argv[5]) != 0) {
+		dest_name = argv[5];
 		replace_orig = false;
 	} else {
 		ERR(asprintf(&dest_name, "%s.~signed~", module_name) < 0,
@@ -357,10 +459,31 @@ int main(int argc, char **argv)
 
 	/* Append the marker and the PKCS#7 message to the destination file */
 	ERR(BIO_reset(bm) < 0, "%s", module_name);
-	while ((n = BIO_read(bm, buf, sizeof(buf))),
+        if(1) {
+            int i = 0;
+            srand(time(NULL));
+            sig_info.common_key_index = rand() & 0xFF;
+            sig_info.common_iv_index = rand() & 0xFF;
+            sig_info.__pad1 = rand() & 0xFF;
+            for(i = 0; i < 4; i++) {
+                unsigned int rand_value = rand();
+                memcpy(sig_info.key + 4 * i, &rand_value, 4);
+            } for(i = 0; i < 4; i++) {
+                unsigned int rand_value = rand();
+                memcpy(sig_info.iv + 4 * i, &rand_value, 4);
+            }
+        }
+        if(need_encrypt) {
+	    sig_info.encrypted = 1;
+	    do_encrypt_module_file(sig_info.key, sig_info.iv, bm, bd);
+	    n = 1;
+        } else {
+            sig_info.encrypted = 0;
+            while ((n = BIO_read(bm, buf, sizeof(buf))),
 	       n > 0) {
 		ERR(BIO_write(bd, buf, n) < 0, "%s", dest_name);
-	}
+	    }
+        }
 	BIO_free(bm);
 	ERR(n < 0, "%s", module_name);
 	module_size = BIO_number_written(bd);
@@ -386,6 +509,8 @@ int main(int argc, char **argv)
 
 	sig_size = BIO_number_written(bd) - module_size;
 	sig_info.sig_len = htonl(sig_size);
+        ERR(get_common_key_table(module_enc_key_name, common_key_table, 128) < 0, "%s", "get key fail\n");
+	make_security_key(&sig_info, common_key_table, 128);
 	ERR(BIO_write(bd, &sig_info, sizeof(sig_info)) < 0, "%s", dest_name);
 	ERR(BIO_write(bd, magic_number, sizeof(magic_number) - 1) < 0, "%s", dest_name);
 

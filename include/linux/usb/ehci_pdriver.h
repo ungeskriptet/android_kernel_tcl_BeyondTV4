@@ -58,6 +58,10 @@ struct usb_ehci_pdata {
 	 * turn off everything else */
 	void (*power_suspend)(struct platform_device *pdev);
 	int (*pre_setup)(struct usb_hcd *hcd);
+
+	/* RTK defined */
+	int id;
+	unsigned debug_ctrl_flag;
 };
 
 #endif /* __USB_CORE_EHCI_PDRIVER_H */

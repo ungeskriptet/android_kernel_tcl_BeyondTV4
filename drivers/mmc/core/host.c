@@ -27,7 +27,6 @@
 #include <linux/mmc/slot-gpio.h>
 
 #include "core.h"
-#include "crypto.h"
 #include "host.h"
 #include "slot-gpio.h"
 #include "pwrseq.h"
@@ -158,8 +157,17 @@ int mmc_retune(struct mmc_host *host)
 	if (err)
 		goto out;
 
-	if (return_to_hs400)
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+	if (return_to_hs400){
 		err = mmc_hs200_to_hs400(host->card);
+		if(!err)
+			err = mmc_execute_tuning_400(host->card);
+    }
+#else
+	if (return_to_hs400){
+		err = mmc_hs200_to_hs400(host->card);
+#endif
+
 out:
 	host->doing_retune = 0;
 
@@ -469,7 +477,6 @@ EXPORT_SYMBOL(mmc_remove_host);
  */
 void mmc_free_host(struct mmc_host *host)
 {
-	mmc_crypto_free_host(host);
 	mmc_pwrseq_free(host);
 	put_device(&host->class_dev);
 }

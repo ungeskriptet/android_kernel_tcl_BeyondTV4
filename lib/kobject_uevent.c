@@ -28,6 +28,7 @@
 #include <net/sock.h>
 #include <net/net_namespace.h>
 
+#include "rtd_hotplug.h"
 
 u64 uevent_seqnum;
 #ifdef CONFIG_UEVENT_HELPER
@@ -463,6 +464,14 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
 		mutex_unlock(&uevent_sock_mutex);
 		goto exit;
 	}
+
+	// add by cyhuang : +++
+	// cyhuang (2010/10/28) : Hack for diethotplug.
+	if (RtdBlockHotplugUevent(kobj,subsystem,env) == RTD_HOTPLUG_HIDE_BLOCK_UEVENT) {
+		mutex_unlock(&uevent_sock_mutex);
+	    goto exit;
+	}
+	// add by cyhuang : ---
 
 #if defined(CONFIG_NET)
 	/* send netlink message */

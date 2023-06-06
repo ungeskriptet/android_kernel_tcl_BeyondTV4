@@ -51,8 +51,20 @@ struct ramfs_fs_info {
 static const struct super_operations ramfs_ops;
 static const struct inode_operations ramfs_dir_inode_operations;
 
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+static int ramfs_readpage(struct file *file, struct page *page)
+{
+	SetPageDirty(page);
+	simple_readpage(file, page);
+}
+#endif
+
 static const struct address_space_operations ramfs_aops = {
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+	.readpage	= ramfs_readpage,
+#else
 	.readpage	= simple_readpage,
+#endif
 	.write_begin	= simple_write_begin,
 	.write_end	= simple_write_end,
 	.set_page_dirty	= __set_page_dirty_no_writeback,
@@ -67,7 +79,11 @@ struct inode *ramfs_get_inode(struct super_block *sb,
 		inode->i_ino = get_next_ino();
 		inode_init_owner(inode, dir, mode);
 		inode->i_mapping->a_ops = &ramfs_aops;
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+		mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER_MOVABLE);
+#else
 		mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
+#endif
 		mapping_set_unevictable(inode->i_mapping);
 		inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
 		switch (mode & S_IFMT) {

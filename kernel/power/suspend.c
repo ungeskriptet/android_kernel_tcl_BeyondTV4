@@ -35,6 +35,10 @@
 
 #include "power.h"
 
+#ifdef CONFIG_RTK_KDRV_EMCU
+extern int rtk_pm_load_8051(int flag);
+#endif
+
 const char * const pm_labels[] = {
 	[PM_SUSPEND_TO_IDLE] = "freeze",
 	[PM_SUSPEND_STANDBY] = "standby",
@@ -148,7 +152,6 @@ static void s2idle_loop(void)
 			break;
 
 		pm_wakeup_clear(false);
-		clear_wakeup_reasons();
 	}
 
 	pm_pr_dbg("resume from suspend-to-idle\n");
@@ -348,6 +351,10 @@ static int suspend_prepare(suspend_state_t state)
 	if (!sleep_state_supported(state))
 		return -EPERM;
 
+	/*When run emcu_on mode, skip freeze process flow.*/
+	if(state == PM_SUSPEND_STANDBY)
+		return 0;
+
 	pm_prepare_console();
 
 	error = __pm_notifier_call_chain(PM_SUSPEND_PREPARE, -1, &nr_calls);
@@ -361,8 +368,17 @@ static int suspend_prepare(suspend_state_t state)
 	trace_suspend_resume(TPS("freeze_processes"), 0, false);
 	if (!error)
 		return 0;
+	//#if !defined(CONFIG_ANDROID_VERSION) || (CONFIG_ANDROID_VERSION < 9)
+	else if(state == PM_SUSPEND_MEM) /*Force to standby, because some tasks refuse to freeze*/
+	{
+		//pr_err("FAULT!!! freeze task fail, force go to stanby by using emcu_on mode !\n");
+		pr_err("FAULT!!! freeze task fail, need resume back and then suspend again!\n");
+		//#ifdef CONFIG_RTK_KDRV_EMCU
+		//rtk_pm_load_8051(1); // #define SUSPEND_NORMAL      1
+		//#endif
+	}
+	//#endif
 
-	log_suspend_abort_reason("One or more tasks refusing to freeze");
 	suspend_stats.failed_freeze++;
 	dpm_save_failed_step(SUSPEND_FREEZE);
  Finish:
@@ -390,8 +406,10 @@ void __weak arch_suspend_enable_irqs(void)
  *
  * This function should be called after devices have been suspended.
  */
+extern int enable_skip_wakeup_source;
 static int suspend_enter(suspend_state_t state, bool *wakeup)
 {
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	int error, last_dev;
 
 	error = platform_suspend_prepare(state);
@@ -403,8 +421,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		last_dev = suspend_stats.last_failed_dev + REC_FAILED_NUM - 1;
 		last_dev %= REC_FAILED_NUM;
 		pr_err("late suspend of devices failed\n");
-		log_suspend_abort_reason("late suspend of %s device failed",
-					 suspend_stats.failed_devs[last_dev]);
+		log_suspend_abort_reason("%s device failed to power down",
+			suspend_stats.failed_devs[last_dev]);
 		goto Platform_finish;
 	}
 	error = platform_suspend_prepare_late(state);
@@ -422,7 +440,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		last_dev %= REC_FAILED_NUM;
 		pr_err("noirq suspend of devices failed\n");
 		log_suspend_abort_reason("noirq suspend of %s device failed",
-					 suspend_stats.failed_devs[last_dev]);
+			suspend_stats.failed_devs[last_dev]);
 		goto Platform_early_resume;
 	}
 	error = platform_suspend_prepare_noirq(state);
@@ -433,8 +451,10 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		goto Platform_wake;
 
 	error = disable_nonboot_cpus();
+	enable_skip_wakeup_source = 1;
 	if (error || suspend_test(TEST_CPUS)) {
 		log_suspend_abort_reason("Disabling non-boot cpus failed");
+		enable_skip_wakeup_source = 0;
 		goto Enable_cpus;
 	}
 
@@ -444,6 +464,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	error = syscore_suspend();
 	if (!error) {
 		*wakeup = pm_wakeup_pending();
+		enable_skip_wakeup_source = 0;
 		if (!(suspend_test(TEST_CORE) || *wakeup)) {
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, true);
@@ -451,10 +472,15 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, false);
 		} else if (*wakeup) {
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
 			error = -EBUSY;
 		}
 		syscore_resume();
 	}
+	else
+		enable_skip_wakeup_source = 0;
 
 	arch_suspend_enable_irqs();
 	BUG_ON(irqs_disabled());
@@ -500,8 +526,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 	error = dpm_suspend_start(PMSG_SUSPEND);
 	if (error) {
 		pr_err("Some devices failed to suspend, or early wake event detected\n");
-		log_suspend_abort_reason(
-				"Some devices failed to suspend, or early wake event detected");
+		log_suspend_abort_reason("Some devices failed to suspend, or early wake event detected");
 		goto Recover_platform;
 	}
 	suspend_test_finish("suspend devices");
@@ -551,6 +576,8 @@ static void suspend_finish(void)
  * Fail if that's not the case.  Otherwise, prepare for system suspend, make the
  * system enter the given sleep state and clean up after wakeup.
  */
+extern void str_event_after_resume_operation(suspend_state_t state);
+extern int powerMgr_set_wakeup_source_undef(void);
 static int enter_state(suspend_state_t state)
 {
 	int error;
@@ -582,6 +609,7 @@ static int enter_state(suspend_state_t state)
 
 	pm_pr_dbg("Preparing system for sleep (%s)\n", mem_sleep_labels[state]);
 	pm_suspend_clear_flags();
+	powerMgr_set_wakeup_source_undef();
 	error = suspend_prepare(state);
 	if (error)
 		goto Unlock;
@@ -596,9 +624,17 @@ static int enter_state(suspend_state_t state)
 	pm_restore_gfp_mask();
 
  Finish:
+	str_event_after_resume_operation(state);
 	events_check_enabled = false;
 	pm_pr_dbg("Finishing wakeup.\n");
 	suspend_finish();
+	if (error) {  /* If any error occurs while suspend, resume devices in userresume list to let resume be fully completed. */
+		pr_err("PM: Fail in suspend_devices_and_enter(state=%d) err(%d), invoke dpm_resume_user \n", state, error);
+		suspend_test_start();
+		dpm_resume_user(PMSG_RESUME);
+		suspend_test_finish("user resume devices");
+		pm_notifier_call_chain(PM_POST_SUSPEND_USER);
+	}
  Unlock:
 	mutex_unlock(&pm_mutex);
 	return error;

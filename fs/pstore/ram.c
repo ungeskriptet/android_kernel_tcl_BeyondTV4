@@ -36,6 +36,8 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 
+#include <mach/rtk_platform.h>
+
 #define RAMOOPS_KERNMSG_HDR "===="
 #define MIN_MEM_SIZE 4096UL
 
@@ -59,12 +61,12 @@ MODULE_PARM_DESC(pmsg_size, "size of user space message log");
 static unsigned long long mem_address;
 module_param_hw(mem_address, ullong, other, 0400);
 MODULE_PARM_DESC(mem_address,
-		"start of reserved RAM used to store oops/panic logs");
+               "start of reserved RAM used to store oops/panic logs");
 
 static ulong mem_size;
 module_param(mem_size, ulong, 0400);
 MODULE_PARM_DESC(mem_size,
-		"size of reserved RAM used to store oops/panic logs");
+        "size of reserved RAM used to store oops/panic logs");
 
 static unsigned int mem_type;
 module_param(mem_type, uint, 0600);
@@ -76,7 +78,7 @@ module_param(dump_oops, int, 0600);
 MODULE_PARM_DESC(dump_oops,
 		"set to 1 to dump oopses, 0 to only dump panics (default 1)");
 
-static int ramoops_ecc;
+static int ramoops_ecc = 0;
 module_param_named(ecc, ramoops_ecc, int, 0600);
 MODULE_PARM_DESC(ramoops_ecc,
 		"if non-zero, the option enables ECC support and specifies "
@@ -918,7 +920,14 @@ static struct platform_driver ramoops_driver = {
 
 static void ramoops_register_dummy(void)
 {
-	if (!mem_size)
+    static unsigned long msize = 0;
+    static unsigned long maddr = 0;
+    msize = carvedout_buf_query(CARVEDOUT_RAMOOPS, (void **)&maddr);
+
+    mem_size = msize;
+    mem_address = maddr;
+
+    if (!mem_size)
 		return;
 
 	pr_info("using module parameters\n");

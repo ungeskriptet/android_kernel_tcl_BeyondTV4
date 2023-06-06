@@ -1748,6 +1748,7 @@ SYSCALL_DEFINE2(umount, char __user *, name, int, flags)
 	retval = user_path_mountpoint_at(AT_FDCWD, name, lookup_flags, &path);
 	if (retval)
 		goto out;
+
 	mnt = real_mount(path.mnt);
 	retval = -EINVAL;
 	if (path.dentry != path.mnt->mnt_root)
@@ -2788,7 +2789,7 @@ void *copy_mount_options(const void __user * data)
 	 * the remainder of the page.
 	 */
 	/* copy_from_user cannot cross TASK_SIZE ! */
-	size = TASK_SIZE - (unsigned long)untagged_addr(data);
+	size = TASK_SIZE - (unsigned long)data;
 	if (size > PAGE_SIZE)
 		size = PAGE_SIZE;
 
@@ -3565,6 +3566,98 @@ static struct user_namespace *mntns_owner(struct ns_common *ns)
 {
 	return to_mnt_ns(ns)->user_ns;
 }
+
+int get_mount_path_one(struct super_block *sb, char *buf, size_t size)
+{
+	struct mount *mnt;
+	char *p, *end;
+	int res = 0;
+
+	list_for_each_entry(mnt, &sb->s_mounts, mnt_instance) {
+		if (mnt != NULL && (unsigned long)mnt > USER_DS) {
+			struct path mnt_path = {.dentry = mnt->mnt.mnt_root, .mnt = &mnt->mnt};
+			memset(buf, 0, size);
+
+			p = d_path(&mnt_path, buf, size);
+			if (IS_ERR(p)) /* try to get next mount path */
+				continue;
+
+			res = PTR_ERR(p);
+			end = mangle_path(buf, p, " \t\n\\");
+			if (end) {
+				res = end - buf;
+				break;
+			} else
+				res = -ENAMETOOLONG;
+		}
+	}
+
+	return res < 0 && res != -ENAMETOOLONG ? res : 0;
+}
+EXPORT_SYMBOL(get_mount_path_one);
+
+struct mount_path_recorder {
+	char path[256];
+	struct list_head others;
+};
+
+void umount_sb_mounted_points(struct super_block *sb)
+{
+	struct mount *mnt, *next_mnt;
+	char *p, *end;
+	int res = 0;
+	bool is_same = false;
+	struct mount_path_recorder *mpr, *next_mpr;
+	LIST_HEAD(mount_recorder_head);
+	mm_segment_t old_fs;
+
+	list_for_each_entry_safe(mnt, next_mnt, &sb->s_mounts, mnt_instance) {
+		struct path mnt_path = {.dentry = mnt->mnt.mnt_root, .mnt = &mnt->mnt};
+		struct mount_path_recorder *mr = kzalloc(sizeof(struct mount_path_recorder), GFP_KERNEL);
+		if (!mr)
+			goto umount_remain;
+
+		memset(mr->path, 0, sizeof(mr->path));
+
+		p = d_path(&mnt_path, mr->path, sizeof(mr->path));
+		if (IS_ERR(p)) /* try to get next mount point */
+			continue;
+
+		res = PTR_ERR(p);
+		end = mangle_path(mr->path, p, " \t\n\\");
+		if (end)
+			res = end - mr->path;
+		else
+			res = -ENAMETOOLONG;
+
+		if (res < 0 && res != -ENAMETOOLONG) {
+			kfree(mr);
+			continue;
+		}
+
+		is_same = false;
+		list_for_each_entry(mpr, &mount_recorder_head, others) {
+			if (!strcmp(mr->path, mpr->path)) { /* mount point is same */
+				is_same = true;
+				kfree(mr);
+				break;
+			}
+		}
+		if (!is_same) /* new mount point, add to list */
+			list_add(&mr->others, &mount_recorder_head);
+	}
+	umount_remain:
+	old_fs = get_fs();
+	set_fs(get_ds());
+	list_for_each_entry_safe(mpr, next_mpr, &mount_recorder_head, others) {
+		res = sys_umount(mpr->path, MNT_FORCE | MNT_DETACH | UMOUNT_NOFOLLOW);
+		pr_info("[fs] umount (%s) successfuly \n", mpr->path);
+		kfree(mpr);
+	}
+	set_fs(old_fs);
+}
+EXPORT_SYMBOL(umount_sb_mounted_points);
+
 
 const struct proc_ns_operations mntns_operations = {
 	.name		= "mnt",

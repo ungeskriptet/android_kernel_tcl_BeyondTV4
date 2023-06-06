@@ -869,6 +869,28 @@ static int writeout(struct address_space *mapping, struct page *page)
 static int fallback_migrate_page(struct address_space *mapping,
 	struct page *newpage, struct page *page, enum migrate_mode mode)
 {
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+	/*
+	 * Buffers may be managed in a filesystem specific way.
+	 * We must have no buffers or drop them.
+	 */
+	if (page_has_private(page)) {
+        if (PageDirty(page)) {
+            /* Only writeback pages in full synchronous migration */
+            switch (mode) {
+            case MIGRATE_SYNC:
+            case MIGRATE_SYNC_NO_COPY:
+                break;
+            default:
+                return -EBUSY;
+            }
+            return writeout(mapping, page);
+        }
+
+        if (!try_to_release_page(page, GFP_KERNEL))
+            return -EAGAIN;
+    }
+#else
 	if (PageDirty(page)) {
 		/* Only writeback pages in full synchronous migration */
 		switch (mode) {
@@ -881,14 +903,14 @@ static int fallback_migrate_page(struct address_space *mapping,
 		return writeout(mapping, page);
 	}
 
-	/*
-	 * Buffers may be managed in a filesystem specific way.
-	 * We must have no buffers or drop them.
-	 */
+ 	/*
+ 	 * Buffers may be managed in a filesystem specific way.
+ 	 * We must have no buffers or drop them.
+ 	 */
 	if (page_has_private(page) &&
 	    !try_to_release_page(page, GFP_KERNEL))
 		return -EAGAIN;
-
+#endif
 	return migrate_page(mapping, newpage, page, mode);
 }
 
@@ -1651,7 +1673,7 @@ static int do_pages_move(struct mm_struct *mm, nodemask_t task_nodes,
 			err = -EFAULT;
 			if (get_user(p, pages + j + chunk_start))
 				goto out_pm;
-			pm[j].addr = (unsigned long)untagged_addr(p);
+			pm[j].addr = (unsigned long) p;
 
 			if (get_user(node, nodes + j + chunk_start))
 				goto out_pm;

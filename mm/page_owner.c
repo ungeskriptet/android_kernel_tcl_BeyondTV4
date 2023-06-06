@@ -20,8 +20,14 @@
 #define PAGE_OWNER_STACK_DEPTH (16)
 
 struct page_owner {
+	#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+	unsigned int count;
+	#else
 	unsigned int order;
+	#endif
 	gfp_t gfp_mask;
+    pid_t pid;          /* pid of the current task */
+    char comm[TASK_COMM_LEN];   /* executable name */
 	int last_migrate_reason;
 	depot_stack_handle_t handle;
 };
@@ -32,6 +38,19 @@ DEFINE_STATIC_KEY_FALSE(page_owner_inited);
 static depot_stack_handle_t dummy_handle;
 static depot_stack_handle_t failure_handle;
 static depot_stack_handle_t early_handle;
+
+static const char migrate_types[MIGRATE_TYPES] = {
+    [MIGRATE_UNMOVABLE]	= 'U',
+    [MIGRATE_MOVABLE]	= 'M',
+    [MIGRATE_RECLAIMABLE]	= 'E',
+    [MIGRATE_HIGHATOMIC]	= 'H',
+#ifdef CONFIG_CMA
+    [MIGRATE_CMA]		= 'C',
+#endif
+#ifdef CONFIG_MEMORY_ISOLATION
+    [MIGRATE_ISOLATE]	= 'I',
+#endif
+};
 
 static void init_early_allocated_pages(void);
 
@@ -170,21 +189,38 @@ static noinline depot_stack_handle_t save_stack(gfp_t flags)
 }
 
 static inline void __set_page_owner_handle(struct page_ext *page_ext,
-	depot_stack_handle_t handle, unsigned int order, gfp_t gfp_mask)
+	depot_stack_handle_t handle,
+			#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+			unsigned int count,
+			#else
+			unsigned int order,
+			#endif
+			gfp_t gfp_mask)
 {
 	struct page_owner *page_owner;
 
 	page_owner = get_page_owner(page_ext);
 	page_owner->handle = handle;
+	#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+	page_owner->count = count;
+	#else
 	page_owner->order = order;
+	#endif
 	page_owner->gfp_mask = gfp_mask;
+    page_owner->pid = current->tgid;
+    strncpy(page_owner->comm, current->comm, sizeof(page_owner->comm));
 	page_owner->last_migrate_reason = -1;
 
 	__set_bit(PAGE_EXT_OWNER, &page_ext->flags);
 }
 
-noinline void __set_page_owner(struct page *page, unsigned int order,
-					gfp_t gfp_mask)
+noinline void __set_page_owner(struct page *page,
+			#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+			unsigned int count,
+			#else
+			unsigned int order,
+			#endif
+			gfp_t gfp_mask)
 {
 	struct page_ext *page_ext = lookup_page_ext(page);
 	depot_stack_handle_t handle;
@@ -193,7 +229,11 @@ noinline void __set_page_owner(struct page *page, unsigned int order,
 		return;
 
 	handle = save_stack(gfp_mask);
+	#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+	__set_page_owner_handle(page_ext, handle, count, gfp_mask);
+	#else
 	__set_page_owner_handle(page_ext, handle, order, gfp_mask);
+	#endif
 }
 
 void __set_page_owner_migrate_reason(struct page *page, int reason)
@@ -210,6 +250,7 @@ void __set_page_owner_migrate_reason(struct page *page, int reason)
 
 void __split_page_owner(struct page *page, unsigned int order)
 {
+#ifndef CONFIG_CMA_TRACK_USE_PAGE_OWNER
 	int i;
 	struct page_ext *page_ext = lookup_page_ext(page);
 	struct page_owner *page_owner;
@@ -221,10 +262,12 @@ void __split_page_owner(struct page *page, unsigned int order)
 	page_owner->order = 0;
 	for (i = 1; i < (1 << order); i++)
 		__copy_page_owner(page, page + i);
+#endif
 }
 
 void __copy_page_owner(struct page *oldpage, struct page *newpage)
 {
+#ifndef CONFIG_CMA_TRACK_USE_PAGE_OWNER
 	struct page_ext *old_ext = lookup_page_ext(oldpage);
 	struct page_ext *new_ext = lookup_page_ext(newpage);
 	struct page_owner *old_page_owner, *new_page_owner;
@@ -250,6 +293,7 @@ void __copy_page_owner(struct page *oldpage, struct page *newpage)
 	 * the new page, which will be freed.
 	 */
 	__set_bit(PAGE_EXT_OWNER, &new_ext->flags);
+#endif
 }
 
 void pagetypeinfo_showmixedcount_print(struct seq_file *m,
@@ -325,7 +369,11 @@ void pagetypeinfo_showmixedcount_print(struct seq_file *m,
 				pfn = block_end_pfn;
 				break;
 			}
+			#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+			pfn += (page_owner->count) - 1;
+			#else
 			pfn += (1UL << page_owner->order) - 1;
+			#endif
 		}
 	}
 
@@ -356,24 +404,30 @@ print_page_owner(char __user *buf, size_t count, unsigned long pfn,
 	if (!kbuf)
 		return -ENOMEM;
 
+	pageblock_mt = get_pageblock_migratetype(page);
+	page_mt  = gfpflags_to_migratetype(page_owner->gfp_mask);
+
 	ret = snprintf(kbuf, count,
-			"Page allocated via order %u, mask %#x(%pGg)\n",
-			page_owner->order, page_owner->gfp_mask,
-			&page_owner->gfp_mask);
+			#ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+			"Page size %u, mask %#x(%pGg), type [%c], zone %s, pid %d, %s\n", page_owner->count * 4,
+			#else
+			"Page order %u, mask %#x(%pGg), type [%c], zone %s, pid %d, %s\n", page_owner->order,
+			#endif
+			page_owner->gfp_mask, &page_owner->gfp_mask, migrate_types[page_mt],
+			page_zone(page)->name, page_owner->pid, page_owner->comm);
 
 	if (ret >= count)
 		goto err;
 
 	/* Print information relevant to grouping pages by mobility */
-	pageblock_mt = get_pageblock_migratetype(page);
-	page_mt  = gfpflags_to_migratetype(page_owner->gfp_mask);
 	ret += snprintf(kbuf + ret, count - ret,
-			"PFN %lu type %s Block %lu type %s Flags %#lx(%pGp)\n",
+			"PFN %lu type %s Block %lu type %s Flags %#lx(%pGp), pid %d, %s\n",
 			pfn,
 			migratetype_names[page_mt],
 			pfn >> pageblock_order,
 			migratetype_names[pageblock_mt],
-			page->flags, &page->flags);
+			page->flags, &page->flags,
+			page_owner->pid, page_owner->comm);
 
 	if (ret >= count)
 		goto err;
@@ -442,8 +496,13 @@ void __dump_page_owner(struct page *page)
 	}
 
 	depot_fetch_stack(handle, &trace);
+    #ifdef CONFIG_PAGE_OWNER_RECORD_COUNT
+	pr_alert("page allocated via size %u, migratetype %s, gfp_mask %#x(%pGg)\n",
+		 page_owner->count, migratetype_names[mt], gfp_mask, &gfp_mask);
+    #else
 	pr_alert("page allocated via order %u, migratetype %s, gfp_mask %#x(%pGg)\n",
 		 page_owner->order, migratetype_names[mt], gfp_mask, &gfp_mask);
+    #endif
 	print_stack_trace(&trace, 0);
 
 	if (page_owner->last_migrate_reason != -1)

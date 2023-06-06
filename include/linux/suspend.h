@@ -10,6 +10,12 @@
 #include <linux/freezer.h>
 #include <asm/errno.h>
 
+//https://jira.realtek.com/browse/MA6PBU-185
+//Enable WOV support
+#ifdef CONFIG_ARCH_RTK285O
+//#define CONFIG_ENABLE_WOV_SUPPORT
+#endif
+
 #ifdef CONFIG_VT
 extern void pm_set_vt_switch(int);
 #else
@@ -413,6 +419,7 @@ static inline bool hibernation_available(void) { return false; }
 #define PM_POST_SUSPEND		0x0004 /* Suspend finished */
 #define PM_RESTORE_PREPARE	0x0005 /* Going to restore a saved image */
 #define PM_POST_RESTORE		0x0006 /* Restore failed */
+#define PM_POST_SUSPEND_USER 0x0007 /* Suspend finished (user reusme)*/
 
 extern struct mutex pm_mutex;
 

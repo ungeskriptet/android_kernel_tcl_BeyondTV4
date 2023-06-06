@@ -10,6 +10,7 @@
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/suspend.h>
+#include <linux/sched/clock.h>
 #include <trace/events/power.h>
 #include <linux/wakeup_reason.h>
 
@@ -96,7 +97,9 @@ EXPORT_SYMBOL_GPL(syscore_suspend);
 void syscore_resume(void)
 {
 	struct syscore_ops *ops;
-
+#ifdef CONFIG_PM_RESUME_TIME
+        pm_resume_set_starttime(POWER_ON_DC, PM_STAGE_KERNEL,sched_clock());
+#endif
 	trace_suspend_resume(TPS("syscore_resume"), 0, true);
 	WARN_ONCE(!irqs_disabled(),
 		"Interrupts enabled before system core resume.\n");

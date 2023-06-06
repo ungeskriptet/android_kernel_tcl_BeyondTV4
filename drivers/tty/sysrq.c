@@ -134,10 +134,17 @@ static struct sysrq_key_op sysrq_unraw_op = {
 
 static void sysrq_handle_crash(int key)
 {
-	/* release the RCU read lock before crashing */
-	rcu_read_unlock();
+	char *killer = NULL;
 
-	panic("sysrq triggered crash\n");
+	/* we need to release the RCU read lock here,
+	 * otherwise we get an annoying
+	 * 'BUG: sleeping function called from invalid context'
+	 * complaint from the kernel before the panic.
+	 */
+	rcu_read_unlock();
+	panic_on_oops = 1;	/* force panic */
+	wmb();
+	*killer = 1;
 }
 static struct sysrq_key_op sysrq_crash_op = {
 	.handler	= sysrq_handle_crash,
@@ -148,6 +155,24 @@ static struct sysrq_key_op sysrq_crash_op = {
 
 static void sysrq_handle_reboot(int key)
 {
+	if (reboot_perm == 0) {
+		printk(KERN_ERR "MAYDAY! MAYDAY! sysrq-reboot(b) request coming(%d, %pT)... \n",
+		       task_pid_nr(current), current);
+
+#ifdef CONFIG_RTK_KDRV_WATCHDOG
+		{
+			extern int watchdog_enable (unsigned char On);
+			extern int kill_watchdog (void);
+			
+			kill_watchdog ();
+			watchdog_enable(0);
+		}
+#endif
+		/* sync fs and IO, to save log completely */
+		sys_sync();
+
+		return;
+	}
 	lockdep_off();
 	local_irq_enable();
 	emergency_restart();
@@ -257,6 +282,19 @@ static struct sysrq_key_op sysrq_showallcpus_op = {
 	.action_msg	= "Show backtrace of all active CPUs",
 	.enable_mask	= SYSRQ_ENABLE_DUMP,
 };
+#endif
+
+// RTK_patch: add dump stack api
+#ifdef CONFIG_SMP
+void dump_stacks (void)
+{
+    sysrq_handle_showallcpus(0);
+}
+#else
+void dump_stacks (void)
+{
+    dump_stack();
+}
 #endif
 
 static void sysrq_handle_showregs(int key)

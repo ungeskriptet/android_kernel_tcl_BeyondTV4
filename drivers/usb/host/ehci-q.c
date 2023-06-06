@@ -615,10 +615,16 @@ qh_urb_transaction (
 	len = urb->transfer_buffer_length;
 	is_input = usb_pipein (urb->pipe);
 	if (usb_pipecontrol (urb->pipe)) {
+		int qtd_buf_len = 0;
+
 		/* SETUP pid */
-		qtd_fill(ehci, qtd, urb->setup_dma,
+		qtd_buf_len = qtd_fill(ehci, qtd, urb->setup_dma,
 				sizeof (struct usb_ctrlrequest),
 				token | (2 /* "setup" */ << 8), 8);
+
+#ifdef DEBUG_MEMORY_TRASH
+		mem_trash_buf_monitor(ehci, qtd, urb->setup_dma, qtd_buf_len);  // should only 8 byte
+#endif
 
 		/* ... and always at least one more pid */
 		token ^= QTD_TOGGLE;
@@ -669,6 +675,11 @@ qh_urb_transaction (
 
 		this_qtd_len = qtd_fill(ehci, qtd, buf, this_sg_len, token,
 				maxpacket);
+
+#ifdef DEBUG_MEMORY_TRASH
+		mem_trash_buf_monitor(ehci, qtd, buf, this_qtd_len);
+#endif
+
 		this_sg_len -= this_qtd_len;
 		len -= this_qtd_len;
 		buf += this_qtd_len;

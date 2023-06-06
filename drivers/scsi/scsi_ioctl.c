@@ -187,6 +187,11 @@ static int scsi_ioctl_get_pci(struct scsi_device *sdev, void __user *arg)
 		? -EFAULT: 0;
 }
 
+static int scsi_ioctl_get_device_model(struct scsi_device *sdev, void __user *arg)
+{
+        return copy_to_user(arg, sdev->model, min(strlen(sdev->model), (size_t)16))
+		? -EFAULT: 0;
+}
 
 /**
  * scsi_ioctl - Dispatch ioctl to scsi device
@@ -263,6 +268,8 @@ int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 				     START_STOP_TIMEOUT, NORMAL_RETRIES);
         case SCSI_IOCTL_GET_PCI:
                 return scsi_ioctl_get_pci(sdev, arg);
+        case SCSI_IOCTL_GET_DEVICE_MODEL:
+                return scsi_ioctl_get_device_model(sdev, arg);
 	case SG_SCSI_RESET:
 		return scsi_ioctl_reset(sdev, arg);
 	default:

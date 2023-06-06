@@ -101,7 +101,7 @@ static int alarmtimer_rtc_add_device(struct device *dev,
 	if (!device_may_wakeup(rtc->dev.parent))
 		return -1;
 
-	__ws = wakeup_source_register(dev, "alarmtimer");
+	__ws = wakeup_source_register("alarmtimer");
 
 	spin_lock_irqsave(&rtcdev_lock, flags);
 	if (!rtcdev) {
@@ -234,7 +234,12 @@ ktime_t alarm_expires_remaining(const struct alarm *alarm)
 }
 EXPORT_SYMBOL_GPL(alarm_expires_remaining);
 
-#ifdef CONFIG_RTC_CLASS
+/*
+ * Do not set following alarm timer to rtc device on oreo platform, 
+ * for they're unexpected wakeup source.
+ * refer JIAR ID[TCL2841-680].
+ */
+#if defined(CONFIG_RTC_CLASS) && (CONFIG_ANDROID_VERSION >= 9)
 /**
  * alarmtimer_suspend - Suspend time callback
  * @dev: unused
@@ -285,12 +290,12 @@ static int alarmtimer_suspend(struct device *dev)
 	}
 	if (min == 0)
 		return 0;
-
+#if 0
 	if (ktime_to_ns(min) < 2 * NSEC_PER_SEC) {
 		__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
 		return -EBUSY;
 	}
-
+#endif
 	trace_alarmtimer_suspend(expires, type);
 
 	/* Setup an rtc timer to fire that far in the future */
@@ -317,6 +322,11 @@ static int alarmtimer_resume(struct device *dev)
 }
 
 #else
+/* For Android O/P project, android framework can't modify.
+ * Android GMS will set alarm clock less than 2 sec, might cause alarmtimer_suspend fail(EBUSY).
+ * For alarmtimer_suspend fail(EBUSY) case, need to check out driver resume successfully or not ?
+ * Like http://mm2.sdlc.rd.realtek.com/gerrit/#/c/91559/
+ */
 static int alarmtimer_suspend(struct device *dev)
 {
 	return 0;

@@ -369,6 +369,25 @@ static void __init create_mapping_noalloc(phys_addr_t phys, unsigned long virt,
 			     NO_CONT_MAPPINGS);
 }
 
+#ifdef CONFIG_REALTEK_LOGBUF
+static void __init create_page_mapping(unsigned long _start, unsigned long _size)
+{
+    unsigned long addr, start, end;
+
+    start = round_down(_start, PMD_SIZE);
+    end = start + PMD_SIZE;
+
+    /*
+     * Clear previous low-memory mapping to ensure that the
+     * TLB does not see any conflicting entries.
+     */
+    for (addr = __phys_to_virt(start); addr < __phys_to_virt(end); addr += PMD_SIZE)
+        pmd_clear(pmd_off_k(addr));
+
+    /* Use type non section mapping for page (PTE) mapping */
+    create_mapping(start, __phys_to_virt(start), end - start, PAGE_KERNEL);
+}
+#endif
 void __init create_pgd_mapping(struct mm_struct *mm, phys_addr_t phys,
 			       unsigned long virt, phys_addr_t size,
 			       pgprot_t prot, bool page_mappings_only)
@@ -496,6 +515,50 @@ void mark_rodata_ro(void)
 			    section_size, PAGE_KERNEL_RO);
 
 	debug_checkwx();
+}
+
+static inline pmd_t *pmd_off_k(unsigned long virt)
+{
+        return pmd_offset(pud_offset(pgd_offset_k(virt), virt), virt);
+}
+
+#ifdef CONFIG_REALTEK_LOGBUF
+static void __init create_page_mapping(unsigned long _start, unsigned long _size)
+{
+    unsigned long addr, start, end;
+
+    start = round_down(_start, PMD_SIZE);
+    end = start + PMD_SIZE;
+
+    /*
+     * Clear previous low-memory mapping to ensure that the
+     * TLB does not see any conflicting entries.
+     */
+    for (addr = __phys_to_virt(start); addr < __phys_to_virt(end); addr += PMD_SIZE)
+        pmd_clear(pmd_off_k(addr));
+
+    /* Use type non section mapping for page (PTE) mapping */
+    create_mapping(start, __phys_to_virt(start), end - start, PAGE_KERNEL);
+}
+#endif
+
+__attribute__((weak)) unsigned long rtdlog_get_buffer_size(void)
+{
+        return 0;
+}
+void create_rtdlog_mapping (void)
+{
+#ifdef CONFIG_REALTEK_LOGBUF
+    unsigned long addr, size;
+    pgprot_t rtdlog_prot = PAGE_KERNEL;
+
+    addr = 0x1ca00000;
+    size = rtdlog_get_buffer_size();
+
+    create_page_mapping(addr, size);
+    rtdlog_prot = pgprot_writecombine(rtdlog_prot);
+    create_mapping(addr, __phys_to_virt(addr), size, rtdlog_prot);
+#endif
 }
 
 static void __init map_kernel_segment(pgd_t *pgd, void *va_start, void *va_end,
@@ -627,6 +690,7 @@ void __init paging_init(void)
 	map_kernel(pgd);
 	map_mem(pgd);
 
+	create_rtdlog_mapping();
 	/*
 	 * We want to reuse the original swapper_pg_dir so we don't have to
 	 * communicate the new address to non-coherent secondaries in

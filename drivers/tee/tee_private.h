@@ -68,6 +68,12 @@ struct tee_shm_pool_mgr_ops {
 struct tee_shm_pool_mgr {
 	const struct tee_shm_pool_mgr_ops *ops;
 	void *private_data;
+/** RTK to shared memory info */
+	int max_allocated;
+	int allocated;
+	int total;
+	struct mutex shm_lock;
+/* rtk*/
 };
 
 /**
@@ -119,11 +125,38 @@ struct tee_device {
 	struct tee_shm_pool *pool;
 };
 
+/**
+ * RTK struct tee_shm_pool_stats: record optee shared memory info
+ * @private_mgr_allocated: size of current allocated memory
+ * @private_mgr_total: private_mgr buf total size
+ * @private_mgr_aligned_unit: allocated buffer minimum unit size
+ * @private_mgr_max_allocated: In histroy, maximum allocated memory
+ * @dmabuf_mgr_allocated: major SHM MEM current allocated memory
+ * @dmabuf_mgr_total: dmabuf for user total size
+ * @dmabuf_mgr_aligned_unit: allocated SHM MEM minimum unit size
+ * @dmabuf_mgr_max_allocated: In history, maximum allocated memory
+ */
+struct tee_shm_pool_stats{
+	int private_mgr_allocated;
+	int private_mgr_total;
+	int private_mgr_aligned_unit;
+	int private_mgr_max_allocated;
+	int dmabuf_mgr_allocated;
+	int dmabuf_mgr_total;
+	int dmabuf_mgr_aligned_unit;
+	int dmabuf_mgr_max_allocated;
+};
+/* rtk */
+
 int tee_shm_init(void);
 
 int tee_shm_get_fd(struct tee_shm *shm);
 
 bool tee_device_get(struct tee_device *teedev);
 void tee_device_put(struct tee_device *teedev);
+
+/** RTK get optee shared memory function */
+int tee_shm_pool_get_stats(struct tee_context *ctx, struct tee_shm_pool_stats *pool_stats_out);
+/* rtk */
 
 #endif /*TEE_PRIVATE_H*/

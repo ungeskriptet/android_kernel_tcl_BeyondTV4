@@ -12,6 +12,7 @@
  *
  */
 
+#undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/arm-smccc.h>
@@ -28,6 +29,9 @@
 #include <linux/uaccess.h>
 #include "optee_private.h"
 #include "optee_smc.h"
+#include "optee_debugfs.h"
+#include "../tee_private.h"
+
 
 #define DRIVER_NAME "optee"
 
@@ -59,6 +63,11 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 			p->attr = TEE_IOCTL_PARAM_ATTR_TYPE_NONE;
 			memset(&p->u, 0, sizeof(p->u));
 			break;
+#if CFG_RTK_CMA_MAP
+		case OPTEE_MSG_ATTR_TYPE_MEMMAP_CACHED:
+		case OPTEE_MSG_ATTR_TYPE_MEMMAP_UNCACHED:
+		case OPTEE_MSG_ATTR_TYPE_MEMMAP_BOTHCACHED:
+#endif
 		case OPTEE_MSG_ATTR_TYPE_VALUE_INPUT:
 		case OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT:
 		case OPTEE_MSG_ATTR_TYPE_VALUE_INOUT:
@@ -127,6 +136,11 @@ int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
 			mp->attr = TEE_IOCTL_PARAM_ATTR_TYPE_NONE;
 			memset(&mp->u, 0, sizeof(mp->u));
 			break;
+#if CFG_RTK_CMA_MAP
+        case TEE_IOCTL_PARAM_ATTR_TYPE_MEMMAP_CACHED:
+        case TEE_IOCTL_PARAM_ATTR_TYPE_MEMMAP_UNCACHED:
+        case TEE_IOCTL_PARAM_ATTR_TYPE_MEMMAP_BOTHCACHED:
+#endif
 		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT:
@@ -302,6 +316,31 @@ static bool optee_msg_api_uid_is_optee_api(optee_invoke_fn *invoke_fn)
 	return false;
 }
 
+char optee_git_version[13] = {"not surport"};
+static bool optee_msg_api_get_optee_gitversion(optee_invoke_fn *invoke_fn)
+{
+	union {
+		struct arm_smccc_res smccc;
+		struct optee_smc_calls_get_git_version_result result;
+	} res;
+
+	memset(&res, 0, sizeof(res.smccc));
+	invoke_fn(OPTEE_SMC_GET_GIT_VERSION, 0, 0, 0, 0, 0, 0, 0, &(res.smccc));
+
+	if(res.result.a0 == OPTEE_SMC_RETURN_OK)
+	{
+		memset(optee_git_version, 0, 13);
+		memcpy(optee_git_version, res.result.git_version, 12);
+		printk("optee git version: %s\n", optee_git_version);
+		return true;
+	}
+	else
+	{
+		printk("get optee git version fail\n");
+		return false;
+	}
+}
+
 static bool optee_msg_api_revision_is_compatible(optee_invoke_fn *invoke_fn)
 {
 	union {
@@ -407,6 +446,17 @@ out:
 	return pool;
 }
 
+static bool optee_msg_api_set_cw_write_en(optee_invoke_fn *invoke_fn)
+{
+	struct arm_smccc_res res;
+
+	invoke_fn(OPTEE_SMC_SET_TP_CW_WEN, 0xCCCC4357, 0, 0, 0, 0, 0, 0, &res);
+
+	if(res.a0 == OPTEE_SMC_RETURN_OK)
+		return true;
+	return false;
+}
+
 /* Simple wrapper functions to be able to use a function pointer */
 static void optee_smccc_smc(unsigned long a0, unsigned long a1,
 			    unsigned long a2, unsigned long a3,
@@ -431,6 +481,10 @@ static optee_invoke_fn *get_invoke_func(struct device_node *np)
 	const char *method;
 
 	pr_info("probing for conduit method from DT.\n");
+	if(!np) {
+		pr_err("no device node pointer\n");
+		return ERR_PTR(-ENODEV);
+	}
 
 	if (of_property_read_string(np, "method", &method)) {
 		pr_warn("missing \"method\" property\n");
@@ -446,6 +500,9 @@ static optee_invoke_fn *get_invoke_func(struct device_node *np)
 	return ERR_PTR(-EINVAL);
 }
 
+static int rtk_optee_suspend(struct device *dev);
+static int rtk_optee_resume(struct device *dev);
+
 static struct optee *optee_probe(struct device_node *np)
 {
 	optee_invoke_fn *invoke_fn;
@@ -453,6 +510,7 @@ static struct optee *optee_probe(struct device_node *np)
 	struct optee *optee = NULL;
 	void *memremaped_shm = NULL;
 	struct tee_device *teedev;
+	struct dev_pm_domain	*pm_domain;
 	u32 sec_caps;
 	int rc;
 
@@ -465,6 +523,13 @@ static struct optee *optee_probe(struct device_node *np)
 		return ERR_PTR(-EINVAL);
 	}
 
+	if (optee_msg_api_get_optee_gitversion(invoke_fn)) {
+		pr_warn("get optee git version success\n");
+	}
+	else
+	{
+		pr_warn("get optee git version error\n");
+	}
 	if (!optee_msg_api_revision_is_compatible(invoke_fn)) {
 		pr_warn("api revision mismatch\n");
 		return ERR_PTR(-EINVAL);
@@ -473,6 +538,10 @@ static struct optee *optee_probe(struct device_node *np)
 	if (!optee_msg_exchange_capabilities(invoke_fn, &sec_caps)) {
 		pr_warn("capabilities mismatch\n");
 		return ERR_PTR(-EINVAL);
+	}
+
+	if (!optee_msg_api_set_cw_write_en(invoke_fn)) {
+		printk("set cw write enable error\n");
 	}
 
 	/*
@@ -494,12 +563,23 @@ static struct optee *optee_probe(struct device_node *np)
 
 	optee->invoke_fn = invoke_fn;
 
+	pm_domain = kzalloc(sizeof(*pm_domain), GFP_KERNEL);
+	if (!pm_domain) {
+		rc = -ENOMEM;
+		goto err;
+	}
+	pm_domain->ops.suspend = rtk_optee_suspend;
+	pm_domain->ops.resume = rtk_optee_resume;
+	pm_domain->ops.freeze = rtk_optee_suspend;
+	pm_domain->ops.thaw = rtk_optee_resume;
+
 	teedev = tee_device_alloc(&optee_desc, NULL, pool, optee);
 	if (IS_ERR(teedev)) {
 		rc = PTR_ERR(teedev);
 		goto err;
 	}
 	optee->teedev = teedev;
+	teedev->dev.pm_domain = pm_domain;
 
 	teedev = tee_device_alloc(&optee_supp_desc, NULL, pool, optee);
 	if (IS_ERR(teedev)) {
@@ -534,10 +614,26 @@ err:
 		 * devices hasn't been registered with
 		 * tee_device_register() yet.
 		 */
-		tee_device_unregister(optee->supp_teedev);
-		tee_device_unregister(optee->teedev);
+		if (optee->teedev) {
+			if(optee->teedev->dev.pm_domain){
+				kfree(optee->teedev->dev.pm_domain);
+			}
+			tee_device_unregister(optee->teedev);
+			kfree(optee->teedev);
+		} else {
+			if (pm_domain) {
+				kfree(pm_domain);
+			}
+		}
+
+		if (optee->supp_teedev) {
+			tee_device_unregister(optee->supp_teedev);
+			kfree(optee->supp_teedev);
+		}
+
 		kfree(optee);
 	}
+
 	if (pool)
 		tee_shm_pool_free(pool);
 	if (memremaped_shm)
@@ -558,6 +654,10 @@ static void optee_remove(struct optee *optee)
 	 * The two devices has to be unregistered before we can free the
 	 * other resources.
 	 */
+
+	if(optee->teedev->dev.pm_domain){
+		kfree(optee->teedev->dev.pm_domain);
+	}
 	tee_device_unregister(optee->supp_teedev);
 	tee_device_unregister(optee->teedev);
 
@@ -571,12 +671,84 @@ static void optee_remove(struct optee *optee)
 	kfree(optee);
 }
 
+static struct optee *optee_svc;
+
+#ifdef CONFIG_PM
+static int rtk_optee_suspend(struct device *dev)
+{
+	optee_invoke_fn *invoke_fn;
+	struct arm_smccc_res res;
+
+	// [TBD] should we check state.event against PM_EVENT_SUSPEND/PM_EVENT_RESUME/etc?
+	pr_info("[%s,%d,%s] \n",__FILE__,__LINE__,__FUNCTION__);
+    
+	invoke_fn = optee_svc->invoke_fn;
+	if (IS_ERR(invoke_fn))
+		return -EINVAL;
+
+	/** FIXME, this is a temporary workaround.
+	 * 1) 2nd argument, 0x0, is sent into TOS, to invoke suspend process of TEE.
+	 * 2) and it should to be invoked before SCPU core suspend.
+	 *    This is because of KCPU MD, that is stopped in TEE and later will be queried at REE driver suspend.
+	 **/
+
+	invoke_fn(OPTEE_SMC_PM_SUSPEND, 0x0, 0, 0, 0, 0, 0, 0, &res);
+
+	if (res.a0 == OPTEE_SMC_RETURN_EBUSY) // fail
+		return EBUSY;
+
+	// [TBD] res.a1 is the tee resume address
+
+	return 0;
+}
+
+static int rtk_optee_resume(struct device *dev)
+{
+	optee_invoke_fn *invoke_fn;
+	struct arm_smccc_res res;
+
+	// [TBD] should we check state.event against PM_EVENT_SUSPEND/PM_EVENT_RESUME/etc?
+	pr_info("[%s,%d,%s] \n",__FILE__,__LINE__,__FUNCTION__);
+
+	invoke_fn = optee_svc->invoke_fn;
+	if (IS_ERR(invoke_fn))
+		return -EINVAL;
+
+	invoke_fn(OPTEE_SMC_PM_RESUME, 0, 0, 0, 0, 0, 0, 0, &res);
+
+	if (res.a0 == OPTEE_SMC_RETURN_EBUSY) // fail
+		return EBUSY;
+
+	return 0;
+}
+#endif
+/** level:
+ * 0x100, core
+ * 0x101, cluster
+ * 0x102, system/platform. if success, smc do not return.
+ **/
+int rtk_optee_cpu_suspend(int level)
+{
+	optee_invoke_fn *invoke_fn = optee_smccc_smc;
+	struct arm_smccc_res res;
+
+	/** fixme,
+	 * 1) this level is transformed to avoid conflic with rtk_optee_suspend().
+	 * 2) CPU_SUSPEND should own its SMC code.
+	 * 3) this invocation is not return.
+	 **/
+	invoke_fn(OPTEE_SMC_PM_SUSPEND, 0x100+level, 0, 0, 0, 0, 0, 0, &res);
+
+	if (res.a0 == OPTEE_SMC_RETURN_EBUSY) // fail
+		return EBUSY;
+
+	return 0;
+}
 static const struct of_device_id optee_match[] = {
 	{ .compatible = "linaro,optee-tz" },
 	{},
 };
 
-static struct optee *optee_svc;
 
 static int __init optee_driver_init(void)
 {
@@ -595,6 +767,8 @@ static int __init optee_driver_init(void)
 		return -ENODEV;
 	}
 
+	optee_debugfs_init(DRIVER_NAME);
+
 	optee = optee_probe(np);
 	of_node_put(np);
 
@@ -602,6 +776,9 @@ static int __init optee_driver_init(void)
 		return PTR_ERR(optee);
 
 	optee_svc = optee;
+#ifdef CONFIG_OPTEE_SECURE_SVP_PROTECTION
+	optee_carvedout_query();
+#endif
 
 	return 0;
 }
@@ -611,6 +788,7 @@ static void __exit optee_driver_exit(void)
 {
 	struct optee *optee = optee_svc;
 
+	optee_debugfs_exit();
 	optee_svc = NULL;
 	if (optee)
 		optee_remove(optee);

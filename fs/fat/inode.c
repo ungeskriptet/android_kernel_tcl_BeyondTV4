@@ -336,6 +336,9 @@ static const struct address_space_operations fat_aops = {
 	.write_begin	= fat_write_begin,
 	.write_end	= fat_write_end,
 	.direct_IO	= fat_direct_IO,
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+	.migratepage	= buffer_migrate_page,
+#endif
 	.bmap		= _fat_bmap
 };
 
@@ -858,7 +861,7 @@ retry:
 	fat_get_blknr_offset(sbi, i_pos, &blocknr, &offset);
 	bh = sb_bread(sb, blocknr);
 	if (!bh) {
-		fat_msg(sb, KERN_ERR, "unable to read inode block "
+		fat_msg_ratelimit(sb, KERN_ERR, "unable to read inode block "
 		       "for updating (i_pos %lld)", i_pos);
 		return -EIO;
 	}

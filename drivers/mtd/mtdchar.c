@@ -38,7 +38,7 @@
 #include <linux/mtd/map.h>
 
 #include <linux/uaccess.h>
-
+#include <linux/pageremap.h>
 #include "mtdcore.h"
 
 static DEFINE_MUTEX(mtd_mutex);
@@ -465,6 +465,7 @@ static int mtdchar_readoob(struct file *file, struct mtd_info *mtd,
 	return ret;
 }
 
+#if 0
 /*
  * Copies (and truncates, if necessary) OOB layout information to the
  * deprecated layout struct, nand_ecclayout_user. This is necessary only to
@@ -570,6 +571,8 @@ static int get_oobinfo(struct mtd_info *mtd, struct nand_oobinfo *to)
 
 	return 0;
 }
+#endif
+
 
 static int mtdchar_blkpg_ioctl(struct mtd_info *mtd,
 			       struct blkpg_ioctl_arg *arg)
@@ -665,8 +668,12 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	int ret = 0;
 	u_long size;
 	struct mtd_info_user info;
-
-	pr_debug("MTD_ioctl\n");
+	struct mtd_data_oob DataOobLocal;
+	struct mtd_data_oob64 DataOobLocal64;
+	void *databuf, *oobbuf;
+	size_t retlen;
+	struct mtd_oob_ops *ops;
+	pr_debug("MTD_ioctl , cmd no = %d\n",_IOC_NR (cmd));
 
 	size = (cmd & IOCSIZE_MASK) >> IOCSIZE_SHIFT;
 	if (cmd & IOC_IN) {
@@ -676,48 +683,6 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	if (cmd & IOC_OUT) {
 		if (!access_ok(VERIFY_WRITE, argp, size))
 			return -EFAULT;
-	}
-
-	/*
-	 * Check the file mode to require "dangerous" commands to have write
-	 * permissions.
-	 */
-	switch (cmd) {
-	/* "safe" commands */
-	case MEMGETREGIONCOUNT:
-	case MEMGETREGIONINFO:
-	case MEMGETINFO:
-	case MEMREADOOB:
-	case MEMREADOOB64:
-	case MEMLOCK:
-	case MEMUNLOCK:
-	case MEMISLOCKED:
-	case MEMGETOOBSEL:
-	case MEMGETBADBLOCK:
-	case MEMSETBADBLOCK:
-	case OTPSELECT:
-	case OTPGETREGIONCOUNT:
-	case OTPGETREGIONINFO:
-	case OTPLOCK:
-	case ECCGETLAYOUT:
-	case ECCGETSTATS:
-	case MTDFILEMODE:
-	case BLKPG:
-	case BLKRRPART:
-		break;
-
-	/* "dangerous" commands */
-	case MEMERASE:
-	case MEMERASE64:
-	case MEMWRITEOOB:
-	case MEMWRITEOOB64:
-	case MEMWRITE:
-		if (!(file->f_mode & FMODE_WRITE))
-			return -EPERM;
-		break;
-
-	default:
-		return -ENOTTY;
 	}
 
 	switch (cmd) {
@@ -923,6 +888,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		break;
 	}
 
+#if 0
 	/* Legacy interface */
 	case MEMGETOOBSEL:
 	{
@@ -959,6 +925,565 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		return mtd_block_markbad(mtd, offs);
 		break;
 	}
+#else
+	case MEMGETINFO_64:
+	{
+		struct mtd_info_user_64 info_64;
+	
+		info_64.type		= mtd->type;
+		info_64.flags		= mtd->flags;
+		info_64.size		= mtd->size;
+		info_64.erasesize	= mtd->erasesize;
+		info_64.writesize	= mtd->writesize;
+		info_64.oobsize		= mtd->oobsize;
+		/* The below fields are obsolete */
+		info_64.ecctype	= -1;
+		info_64.eccsize	= 0;
+		if (copy_to_user(argp, &info_64, sizeof(struct mtd_info_user_64)))
+			return -EFAULT;
+		break;
+	}
+	//------------------------------------------------------------------------------
+	//for access bootcode-area
+	case MEMWRITEDATABOOTCODE:
+	{
+		unsigned int block_tag = 0;
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		if (copy_from_user(&DataOobLocal, argp, sizeof(struct mtd_data_oob)))
+			return -EFAULT;
+		if (!mtd->_write_bootcode_area)
+			ret = -EOPNOTSUPP;
+		else{
+			ret = access_ok(VERIFY_READ, DataOobLocal.rtk_data.ptr,
+					DataOobLocal.rtk_data.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_READ, DataOobLocal.rtk_oob.ptr,
+					DataOobLocal.rtk_oob.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;						
+		}
+
+		databuf = dvr_malloc(DataOobLocal.rtk_data.length);//dvr_malloc-->vmalloc
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = dvr_malloc(DataOobLocal.rtk_oob.length);//dvr_malloc-->vmalloc
+		if (!oobbuf){
+			dvr_free(databuf); //dvr_free-->vfree
+			return -ENOMEM;
+		}
+
+		ops = dvr_malloc(sizeof(struct mtd_oob_ops));//dvr_malloc-->vmalloc
+		if (!ops){
+			dvr_free(databuf); //dvr_free-->vfree
+			dvr_free(oobbuf);  //dvr_free-->vfree
+			return -ENOMEM;
+		}
+
+
+		if (copy_from_user(databuf, DataOobLocal.rtk_data.ptr, DataOobLocal.rtk_data.length)) {
+			dvr_free(databuf); //dvr_free-->vfree
+			dvr_free(oobbuf);  //dvr_free-->vfree
+			dvr_free(ops);    //dvr_free-->vfree
+			return -EFAULT;
+		}
+
+		if (copy_from_user(oobbuf, DataOobLocal.rtk_oob.ptr, DataOobLocal.rtk_oob.length)) {
+			dvr_free(databuf);  //dvr_free-->vfree
+			dvr_free(oobbuf);	//dvr_free-->vfree
+			dvr_free(ops);			//dvr_free-->vfree
+			return -EFAULT;
+		}
+		ops->len = DataOobLocal.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;
+
+		//from
+		block_tag = *(unsigned int *)oobbuf;
+#if 0
+		printk("%s %d data: length 0x%x,buf 0x%x start 0x%x oob: length 0x%x,buf 0x%x start 0x%x block_tag 0x%x\n",
+			__FUNCTION__,__LINE__,DataOobLocal.rtk_data.length,
+			(unsigned int)DataOobLocal.rtk_data.ptr,DataOobLocal.rtk_data.start,
+			DataOobLocal.rtk_oob.length,(unsigned int)DataOobLocal.rtk_oob.ptr,
+			DataOobLocal.rtk_oob.start,block_tag);
+#endif
+		
+		ops->retlen = ops->oobretlen = 0;
+		if (!mtd->_write_bootcode_area)
+			return -EOPNOTSUPP;
+		if (!(mtd->flags & MTD_WRITEABLE))
+			return -EROFS;
+		if((ret = mtd->_write_bootcode_area(mtd, DataOobLocal.rtk_data.start,
+			ops->len, &(ops->retlen),
+			ops->datbuf, ops->oobbuf, block_tag)) < 0 ){
+			dvr_free(databuf);	//dvr_free-->vfree
+			dvr_free(oobbuf);		//dvr_free-->vfree
+			dvr_free(ops);			//dvr_free-->vfree
+			return ret;
+		}
+		if (copy_to_user(argp + sizeof(uint32_t), &retlen, sizeof(uint32_t)))
+			ret = -EFAULT;
+
+		dvr_free(databuf);	//dvr_free-->vfree
+		dvr_free(oobbuf);		//dvr_free-->vfree
+		dvr_free(ops);			//dvr_free-->vfree
+		break;
+	}
+
+	case MEMWRITEDATABOOTCODE64:
+	{
+		unsigned int block_tag;
+		
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		if (copy_from_user(&DataOobLocal64, argp, sizeof(struct mtd_data_oob64)))
+			return -EFAULT;
+
+		if (!mtd->_write_oob)
+			ret = -EOPNOTSUPP;
+		else{
+			ret = access_ok(VERIFY_READ, DataOobLocal64.rtk_data.ptr,
+					DataOobLocal64.rtk_data.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_READ, DataOobLocal64.rtk_oob.ptr,
+					DataOobLocal64.rtk_oob.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;						
+		}
+		
+		databuf = dvr_malloc(DataOobLocal64.rtk_data.length); //dvr_malloc-->vmalloc
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = dvr_malloc(DataOobLocal64.rtk_oob.length);	//dvr_malloc-->vmalloc
+		if (!oobbuf){
+			dvr_free(databuf);		//dvr_free-->vfree
+			return -ENOMEM;
+		}
+
+		ops = dvr_malloc(sizeof(struct mtd_oob_ops));	//dvr_malloc-->vmalloc
+		if (!ops){
+			dvr_free(databuf);		//dvr_free-->vfree
+			dvr_free(oobbuf);			//dvr_free-->vfree
+			return -ENOMEM;
+		}
+					
+		if (copy_from_user(databuf, DataOobLocal64.rtk_data.ptr, DataOobLocal64.rtk_data.length)) {
+			dvr_free(databuf);	//dvr_free-->vfree
+			dvr_free(oobbuf);		//dvr_free-->vfree
+			dvr_free(ops);			//dvr_free-->vfree
+			return -EFAULT;
+		}
+
+		if (copy_from_user(oobbuf, DataOobLocal64.rtk_oob.ptr, DataOobLocal64.rtk_oob.length)) {
+			dvr_free(databuf);		//dvr_free-->vfree
+			dvr_free(oobbuf);			//dvr_free-->vfree
+			dvr_free(ops);				//dvr_free-->vfree
+			return -EFAULT;
+		}
+		ops->len = DataOobLocal64.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;
+
+		block_tag = *(unsigned int *)oobbuf;
+		
+		if (!mtd->_write_bootcode_area)
+			return -EOPNOTSUPP;
+		if (!(mtd->flags & MTD_WRITEABLE))
+			return -EROFS;
+		if((ret = mtd->_write_bootcode_area(mtd, DataOobLocal.rtk_data.start,
+			ops->len, &(ops->retlen),
+			ops->datbuf, ops->oobbuf, block_tag)) < 0 ){
+			dvr_free(databuf);		//dvr_free-->vfree
+			dvr_free(oobbuf);			//dvr_free-->vfree
+			dvr_free(ops);				//dvr_free-->vfree
+			return ret;
+		}
+		if (copy_to_user(argp + sizeof(uint32_t), &retlen, sizeof(uint32_t)))
+			ret = -EFAULT;
+
+		dvr_free(databuf);		//dvr_free-->vfree
+		dvr_free(oobbuf);			//dvr_free-->vfree
+		dvr_free(ops);				//dvr_free-->vfree
+		
+		break;
+	}
+
+	case MEMERASEBOOTCODE:
+	case MEMERASEBOOTCODE64:
+	{
+		struct erase_info *erase;
+
+		if(!(file->f_mode & FMODE_WRITE))
+			return -EPERM;
+
+		erase=kzalloc(sizeof(struct erase_info),GFP_KERNEL);
+		if (!erase)
+			ret = -ENOMEM;
+		else {
+
+			if (cmd == MEMERASEBOOTCODE64) {
+				struct erase_info_user64 einfo64;
+
+				if (copy_from_user(&einfo64, argp,
+					    sizeof(struct erase_info_user64))) {
+					kfree(erase);
+					return -EFAULT;
+				}
+				erase->addr = einfo64.start;
+				erase->len = einfo64.length;
+			} else {
+				struct erase_info_user einfo32;
+
+				if (copy_from_user(&einfo32, argp,
+					    sizeof(struct erase_info_user))) {
+					kfree(erase);
+					return -EFAULT;
+				}
+				erase->addr = einfo32.start;
+				erase->len = einfo32.length;
+			}
+			if (!mtd->_erase_bootcode_area)
+				return -EOPNOTSUPP;
+			ret = mtd->_erase_bootcode_area(mtd, erase);
+			if(ret !=0 )
+				return ret;
+			
+			kfree(erase);
+		}
+		break;
+	}
+
+	case MEMREADDATABOOTCODE:
+	{
+		if (copy_from_user(&DataOobLocal, argp, sizeof(struct mtd_data_oob)))
+			return -EFAULT;
+		if (!mtd->_read_bootcode_area){
+			ret = -EOPNOTSUPP;
+		}else{
+			ret = access_ok(VERIFY_WRITE, DataOobLocal.rtk_data.ptr,
+					DataOobLocal.rtk_data.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_WRITE, DataOobLocal.rtk_oob.ptr,
+					DataOobLocal.rtk_oob.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret;						
+		}
+
+		databuf = dvr_malloc(DataOobLocal.rtk_data.length);	//dvr_malloc-->vmalloc
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = dvr_malloc(DataOobLocal.rtk_oob.length);	//dvr_malloc-->vmalloc
+		if (!oobbuf){
+			dvr_free(databuf);			//dvr_free-->vfree
+			return -ENOMEM;
+		}
+
+		ops = dvr_malloc(sizeof(struct mtd_oob_ops));	//dvr_malloc-->vmalloc
+		if (!ops){
+			dvr_free(databuf);		//dvr_free-->vfree
+			dvr_free(oobbuf);			//dvr_free-->vfree
+			return -ENOMEM;
+		}
+		ops->len = DataOobLocal.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;	
+		ops->retlen = ops->oobretlen = 0;
+	
+		if (!mtd->_read_bootcode_area)
+			return -EOPNOTSUPP;
+
+		ret =mtd->_read_bootcode_area(mtd, DataOobLocal.rtk_data.start, 
+			ops->len, &(ops->retlen), ops->datbuf, ops->oobbuf);
+		if ( copy_to_user(DataOobLocal.rtk_oob.ptr, oobbuf, DataOobLocal.rtk_oob.length) )
+		{
+			ret = -EFAULT;
+
+		}
+		if (put_user(retlen, (uint32_t __user *)argp))
+		{
+			ret = -EFAULT;
+
+		}
+		else if (copy_to_user(DataOobLocal.rtk_data.ptr, databuf, DataOobLocal.rtk_data.length))
+		{
+			ret = -EFAULT;
+		}
+	
+		dvr_free(databuf);		//dvr_free-->vfree
+		dvr_free(oobbuf);			//dvr_free-->vfree
+		dvr_free(ops);				//dvr_free-->vfree
+		break;
+		
+	}
+	case MEMWRITEPROFILE:
+	{
+		printk("%s %d MTD_ioctl , cmd no = %d\n",__FUNCTION__,__LINE__,_IOC_NR (cmd));
+		if (!mtd->_write_profile)
+			return -EOPNOTSUPP;
+		ret = mtd->_write_profile(mtd);
+		break;
+	}
+	case MEMWRITEDATAOOB:
+	{
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		if (copy_from_user(&DataOobLocal, argp, sizeof(struct mtd_data_oob)))
+			return -EFAULT;
+		if (DataOobLocal.rtk_data.length > 0x4096 || DataOobLocal.rtk_oob.length > 0x4096)
+			return -EINVAL;
+
+		if (!mtd->_write_oob)
+			ret = -EOPNOTSUPP;
+		else{
+			ret = access_ok(VERIFY_READ, DataOobLocal.rtk_data.ptr,
+					DataOobLocal.rtk_data.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_READ, DataOobLocal.rtk_oob.ptr,
+					DataOobLocal.rtk_oob.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;						
+		}
+		
+		databuf = kmalloc(DataOobLocal.rtk_data.length, GFP_KERNEL);
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = kmalloc(DataOobLocal.rtk_oob.length, GFP_KERNEL);
+		if (!oobbuf)
+			return -ENOMEM;
+
+		ops = kmalloc(sizeof(struct mtd_oob_ops), GFP_KERNEL);
+		if (!ops)
+			return -ENOMEM;
+					
+		if (copy_from_user(databuf, DataOobLocal.rtk_data.ptr, DataOobLocal.rtk_data.length)) {
+			kfree(databuf);
+			return -EFAULT;
+		}
+
+		if (copy_from_user(oobbuf, DataOobLocal.rtk_oob.ptr, DataOobLocal.rtk_oob.length)) {
+			kfree(oobbuf);
+			return -EFAULT;
+		}
+		ops->len = DataOobLocal.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;
+		ret = mtd_write_oob(mtd, DataOobLocal.rtk_data.start, ops);
+			
+		if (copy_to_user(argp + sizeof(uint32_t), &retlen, sizeof(uint32_t)))
+			ret = -EFAULT;
+
+		kfree(databuf);
+		kfree(oobbuf);
+		kfree(ops);
+		
+		break;
+	}
+	case MEMWRITEDATAOOB64:
+	{
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		if (copy_from_user(&DataOobLocal64, argp, sizeof(struct mtd_data_oob64)))
+			return -EFAULT;
+
+		if (!mtd->_write_oob)
+			ret = -EOPNOTSUPP;
+		else{
+			ret = access_ok(VERIFY_READ, DataOobLocal64.rtk_data.ptr,
+					DataOobLocal64.rtk_data.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_READ, DataOobLocal64.rtk_oob.ptr,
+					DataOobLocal64.rtk_oob.length) ? 0 : EFAULT;
+			if (ret)
+				return ret;						
+		}
+		
+		databuf = kmalloc(DataOobLocal64.rtk_data.length, GFP_KERNEL);
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = kmalloc(DataOobLocal64.rtk_oob.length, GFP_KERNEL);
+		if (!oobbuf)
+			return -ENOMEM;
+
+		ops = kmalloc(sizeof(struct mtd_oob_ops), GFP_KERNEL);
+		if (!ops)
+			return -ENOMEM;
+					
+		if (copy_from_user(databuf, DataOobLocal64.rtk_data.ptr, DataOobLocal64.rtk_data.length)) {
+			kfree(databuf);
+			return -EFAULT;
+		}
+
+		if (copy_from_user(oobbuf, DataOobLocal64.rtk_oob.ptr, DataOobLocal64.rtk_oob.length)) {
+			kfree(oobbuf);
+			return -EFAULT;
+		}
+		ops->len = DataOobLocal64.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;
+
+		ret = mtd_write_oob(mtd, DataOobLocal64.rtk_data.start, ops);
+			
+		if (copy_to_user(argp + sizeof(uint32_t), &retlen, sizeof(uint32_t)))
+			ret = -EFAULT;
+
+		kfree(databuf);
+		kfree(oobbuf);
+		kfree(ops);
+		
+		break;
+	}
+	
+	case MEMREADDATAOOB:
+	{
+		if (copy_from_user(&DataOobLocal, argp, sizeof(struct mtd_data_oob)))
+			return -EFAULT;
+		
+		if (DataOobLocal.rtk_data.length > 0x4096 || DataOobLocal.rtk_oob.length > 0x4096)
+		{
+			return -EINVAL;
+		}
+
+		if (!mtd->_read_oob){
+			ret = -EOPNOTSUPP;
+		}else{
+			ret = access_ok(VERIFY_WRITE, DataOobLocal.rtk_data.ptr,
+					DataOobLocal.rtk_data.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_WRITE, DataOobLocal.rtk_oob.ptr,
+					DataOobLocal.rtk_oob.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret;						
+		}
+
+		databuf = kmalloc(DataOobLocal.rtk_data.length, GFP_KERNEL);
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = kmalloc(DataOobLocal.rtk_oob.length, GFP_KERNEL);
+		if (!oobbuf)
+			return -ENOMEM;
+
+		ops = kmalloc(sizeof(struct mtd_oob_ops), GFP_KERNEL);
+		if (!ops)
+			return -ENOMEM;
+		
+		ops->len = DataOobLocal.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;
+		ret = mtd_read_oob(mtd, DataOobLocal.rtk_data.start, ops);
+
+		if ( copy_to_user(DataOobLocal.rtk_oob.ptr, oobbuf, DataOobLocal.rtk_oob.length) )
+		{
+			ret = -EFAULT;
+
+		}
+		if (put_user(retlen, (uint32_t __user *)argp))
+		{
+			ret = -EFAULT;
+
+		}
+		else if (copy_to_user(DataOobLocal.rtk_data.ptr, databuf, DataOobLocal.rtk_data.length))
+		{
+			ret = -EFAULT;
+		}
+	
+		kfree(databuf);
+		kfree(oobbuf);
+		kfree(ops);
+		break;
+	}
+
+	case MEMREADDATAOOB64:
+	{
+		if (copy_from_user(&DataOobLocal64, argp, sizeof(struct mtd_data_oob64)))
+			return -EFAULT;
+		if (!mtd->_read_oob)
+			ret = -EOPNOTSUPP;
+		else{
+			ret = access_ok(VERIFY_WRITE, DataOobLocal64.rtk_data.ptr,
+					DataOobLocal64.rtk_data.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret;
+			
+			ret = access_ok(VERIFY_WRITE, DataOobLocal64.rtk_oob.ptr,
+					DataOobLocal64.rtk_oob.length) ? 0 : -EFAULT;
+
+			if (ret)
+				return ret; 					
+		}
+
+		databuf = kmalloc(DataOobLocal64.rtk_data.length, GFP_KERNEL);
+		if (!databuf)
+			return -ENOMEM;
+
+		oobbuf = kmalloc(DataOobLocal64.rtk_oob.length, GFP_KERNEL);
+		if (!oobbuf)
+			return -ENOMEM;
+
+		ops = kmalloc(sizeof(struct mtd_oob_ops), GFP_KERNEL);
+		if (!ops)
+			return -ENOMEM;
+
+		ops->len = DataOobLocal64.rtk_data.length;
+		ops->retlen = retlen;
+		ops->datbuf = databuf;
+		ops->oobbuf = oobbuf;	
+		ret = mtd_read_oob(mtd, DataOobLocal64.rtk_data.start, ops);
+		
+		if ( copy_to_user(DataOobLocal64.rtk_oob.ptr, oobbuf, DataOobLocal64.rtk_oob.length) )
+		{
+			ret = -EFAULT;
+
+		}
+			
+		if (put_user(retlen, (uint32_t __user *)argp))
+		{
+			ret = -EFAULT;
+
+		}
+		else if (copy_to_user(DataOobLocal64.rtk_data.ptr, databuf, DataOobLocal64.rtk_data.length))
+		{
+			ret = -EFAULT;
+
+		}
+		kfree(databuf);
+		kfree(oobbuf);
+		kfree(ops);
+		break;
+	}
+#endif
 
 	case OTPSELECT:
 	{
@@ -1016,7 +1541,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		ret = mtd_lock_user_prot_reg(mtd, oinfo.start, oinfo.length);
 		break;
 	}
-
+#if 0
 	/* This ioctl is being deprecated - it truncates the ECC layout */
 	case ECCGETLAYOUT:
 	{
@@ -1036,6 +1561,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		kfree(usrlay);
 		break;
 	}
+#endif
 
 	case ECCGETSTATS:
 	{

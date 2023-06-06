@@ -24,24 +24,53 @@ static int pool_op_gen_alloc(struct tee_shm_pool_mgr *poolm,
 	unsigned long va;
 	struct gen_pool *genpool = poolm->private_data;
 	size_t s = roundup(size, 1 << genpool->min_alloc_order);
+	int ret = 0;
 
+	mutex_lock(&poolm->shm_lock);
 	va = gen_pool_alloc(genpool, s);
-	if (!va)
-		return -ENOMEM;
+	if (!va) {
+		//pr_err("optee allocated shared memory no memory shm_size=%d\n", s);
+		ret = -ENOMEM;
+		goto error;
+	}
+	poolm->allocated += s;
+	mutex_unlock(&poolm->shm_lock);
 
 	memset((void *)va, 0, s);
 	shm->kaddr = (void *)va;
 	shm->paddr = gen_pool_virt_to_phys(genpool, va);
 	shm->size = s;
-	return 0;
-}
 
+/** RTK update pool memory status */
+	if(poolm->allocated > poolm->total)
+		pr_err("optee allocated shared memory incorrect shm_size=%d pool_cur_alloc=%d > pool_total=%d\n", shm->size, poolm->allocated, poolm->total);
+
+	if(poolm->allocated > poolm->max_allocated)
+		poolm->max_allocated = poolm->allocated;
+/* rtk */
+
+	return 0;
+
+error:
+	mutex_unlock(&poolm->shm_lock);
+	return ret;
+}
 static void pool_op_gen_free(struct tee_shm_pool_mgr *poolm,
 			     struct tee_shm *shm)
 {
+	mutex_lock(&poolm->shm_lock);
+	poolm->allocated -= shm->size;
 	gen_pool_free(poolm->private_data, (unsigned long)shm->kaddr,
 		      shm->size);
 	shm->kaddr = NULL;
+	mutex_unlock(&poolm->shm_lock);
+/** RTK update pool memory status */
+	if(poolm->allocated < 0){
+		pr_err("optee freed shared memory incorrect shm_size=%d pool_cur_size=%d < 0 pool_total=%d\n",shm->size, poolm->allocated, poolm->total);
+		dump_stack();
+		poolm->allocated = 0;
+	}
+/* rtk */
 }
 
 static const struct tee_shm_pool_mgr_ops pool_ops_generic = {
@@ -51,6 +80,8 @@ static const struct tee_shm_pool_mgr_ops pool_ops_generic = {
 
 static void pool_res_mem_destroy(struct tee_shm_pool *pool)
 {
+	mutex_destroy(&pool->private_mgr.shm_lock);
+	mutex_destroy(&pool->dma_buf_mgr.shm_lock);
 	gen_pool_destroy(pool->private_mgr.private_data);
 	gen_pool_destroy(pool->dma_buf_mgr.private_data);
 }
@@ -84,6 +115,12 @@ static int pool_res_mem_mgr_init(struct tee_shm_pool_mgr *mgr,
 
 	mgr->private_data = genpool;
 	mgr->ops = &pool_ops_generic;
+/** RTK init pool memory info */
+	mgr->max_allocated = 0;
+	mgr->allocated = 0;
+	mgr->total = info->size;
+	mutex_init(&mgr->shm_lock);
+/* rtk */
 	return 0;
 }
 
@@ -154,3 +191,50 @@ void tee_shm_pool_free(struct tee_shm_pool *pool)
 	kfree(pool);
 }
 EXPORT_SYMBOL_GPL(tee_shm_pool_free);
+
+/** RTK get optee shared memory function */
+int tee_shm_pool_get_stats(struct tee_context *ctx, struct tee_shm_pool_stats * pool_stats_out)
+{
+	struct tee_device *teedev;
+	struct tee_shm_pool_stats *pool_stats;
+	struct gen_pool *genpool;
+	size_t pool_unit;
+	if (!ctx)
+		return -EINVAL;
+	pool_stats = kzalloc(sizeof(struct tee_shm_pool_stats), GFP_KERNEL);
+
+	if(!pool_stats)
+	{
+		pr_err("tee_shm_pool_get_stats pool_stats kzalloc fail");
+		return -1;
+	}
+
+	teedev = ctx->teedev;
+	genpool= teedev->pool->private_mgr.private_data;
+	pool_unit = 1 << genpool->min_alloc_order;
+	pool_stats->private_mgr_aligned_unit = pool_unit;
+
+	pool_stats->private_mgr_total= teedev->pool->private_mgr.total;
+
+	genpool = teedev->pool->dma_buf_mgr.private_data;
+	pool_unit = 1 << genpool->min_alloc_order;
+	pool_stats->dmabuf_mgr_aligned_unit = pool_unit;
+
+	pool_stats->dmabuf_mgr_total = teedev->pool->dma_buf_mgr.total;
+
+	mutex_lock(&teedev->mutex);
+	pool_stats->private_mgr_allocated = teedev->pool->private_mgr.allocated;
+	pool_stats->private_mgr_max_allocated = teedev->pool->private_mgr.max_allocated;
+	pool_stats->dmabuf_mgr_allocated = teedev->pool->dma_buf_mgr.allocated;
+	pool_stats->dmabuf_mgr_max_allocated = teedev->pool->dma_buf_mgr.max_allocated;
+	mutex_unlock(&teedev->mutex);
+
+	memcpy(pool_stats_out, pool_stats, sizeof(struct tee_shm_pool_stats));
+
+	kfree(pool_stats);
+	return 0;
+}
+
+EXPORT_SYMBOL_GPL(tee_shm_pool_get_stats);
+
+/* rtk */

@@ -310,6 +310,7 @@
 
 #define KEY_SEND		231	/* AC Send */
 #define KEY_REPLY		232	/* AC Reply */
+#define KEY_INFO_DEFINE		195	/* AC INFO */
 #define KEY_FORWARDMAIL		233	/* AC Forward Msg */
 #define KEY_SAVE		234	/* AC Save */
 #define KEY_DOCUMENTS		235
@@ -630,7 +631,7 @@
  * some countries this is referred to as "Video Description".
  */
 #define KEY_AUDIO_DESC			0x26e
-#define KEY_3D_MODE			0x26f
+#define KEY_3D_MODE			0x227
 #define KEY_NEXT_FAVORITE		0x270
 #define KEY_STOP_RECORD			0x271
 #define KEY_PAUSE_RECORD		0x272

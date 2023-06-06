@@ -548,6 +548,8 @@ ENDPROC(__v7_setup)
 
 	.bss
 	.align	2
+    	/* This is for arm_wrapper (export symbol) */
+	.global __v7_setup_stack
 __v7_setup_stack:
 	.space	4 * 7				@ 7 registers
 

@@ -191,6 +191,12 @@ check_partition(struct gendisk *hd, struct block_device *bdev)
 				" unable to read partition table\n", PAGE_SIZE);
 		printk(KERN_INFO "%s", state->pp_buf);
 	}
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	else {
+		hd->part_num = 0;
+		strlcat(state->pp_buf, " unknown partition table\n", PAGE_SIZE);
+	}
+#endif
 
 	free_page((unsigned long)state->pp_buf);
 	free_partitions(state);

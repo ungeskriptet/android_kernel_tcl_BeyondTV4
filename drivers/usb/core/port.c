@@ -490,6 +490,7 @@ int usb_hub_create_port_device(struct usb_hub *hub, int port1)
 	struct usb_port *port_dev;
 	struct usb_device *hdev = hub->hdev;
 	int retval;
+	struct usb_hcd *hcd = bus_to_hcd(hdev->bus);
 
 	port_dev = kzalloc(sizeof(*port_dev), GFP_KERNEL);
 	if (!port_dev)
@@ -531,6 +532,10 @@ int usb_hub_create_port_device(struct usb_hub *hub, int port1)
 		device_unregister(&port_dev->dev);
 		return retval;
 	}
+
+	/* Only map port of root hub */
+	if (!hdev->parent && hcd->driver->get_peer_port_location)
+		port_dev->location = hcd->driver->get_peer_port_location(hcd, port1);
 
 	find_and_link_peer(hub, port1);
 

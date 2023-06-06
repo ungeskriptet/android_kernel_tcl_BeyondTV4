@@ -46,7 +46,9 @@
 #include <linux/bit_spinlock.h>
 #include <linux/pagevec.h>
 #include <trace/events/block.h>
-#include <linux/fscrypt.h>
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+#include <linux/pageremap.h>
+#endif
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
 static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
@@ -212,9 +214,23 @@ __find_get_block_slow(struct block_device *bdev, sector_t block)
 	static DEFINE_RATELIMIT_STATE(last_warned, HZ, 1);
 
 	index = block >> (PAGE_SHIFT - bd_inode->i_blkbits);
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+again:
+#endif
 	page = find_get_page_flags(bd_mapping, index, FGP_ACCESSED);
 	if (!page)
 		goto out;
+
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+//	if (is_migrate_cma(get_pageblock_migratetype(page))) {
+	if (!in_atomic() && (check_cma_memory(page_to_pfn(page)) || PageHighMem(page))) {
+		pr_info("%s: === remap buffer pfn: %lx %d (%d %d)\n", __FUNCTION__, page_to_pfn(page), page_has_buffers(page),
+			MAJOR(page->mapping->host->i_rdev), MINOR(page->mapping->host->i_rdev));
+		put_page(page);
+		remap_one_page(page);
+		goto again;
+	}
+#endif
 
 	spin_lock(&bd_mapping->private_lock);
 	if (!page_has_buffers(page))
@@ -1002,7 +1018,11 @@ grow_dev_page(struct block_device *bdev, sector_t block,
 	 */
 	gfp_mask |= __GFP_NOFAIL;
 
+#ifdef CONFIG_CMA_RTK_ALLOCATOR
+	page = find_or_create_page(inode->i_mapping, index, GFP_NOFS | __GFP_NOFAIL);
+#else
 	page = find_or_create_page(inode->i_mapping, index, gfp_mask);
+#endif
 	if (!page)
 		return ret;
 
@@ -3136,8 +3156,6 @@ static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
 	 * submit_bio -> generic_make_request may further map this bio around
 	 */
 	bio = bio_alloc(GFP_NOIO, 1);
-
-	fscrypt_set_bio_crypt_ctx_bh(bio, bh, GFP_NOIO);
 
 	if (wbc) {
 		wbc_init_bio(wbc, bio);

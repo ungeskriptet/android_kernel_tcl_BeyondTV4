@@ -454,7 +454,11 @@ static int mmc_decode_ext_csd(struct mmc_card *card, u8 *ext_csd)
 				part_size = ext_csd[EXT_CSD_BOOT_MULT] << 17;
 				mmc_part_add(card, part_size,
 					EXT_CSD_PART_CONFIG_ACC_BOOT0 + idx,
+#if defined(CONFIG_MMC_RTKEMMC_PLUS) && defined(CONFIG_ANDROID_RECOVERY_KERNEL)
+					"boot%d", idx, 0,
+#else
 					"boot%d", idx, true,
+#endif
 					MMC_BLK_DATA_AREA_BOOT);
 			}
 		}
@@ -1726,10 +1730,19 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_hs200_tuning(card);
 		if (err)
 			goto free_card;
-
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
 		err = mmc_select_hs400(card);
 		if (err)
 			goto free_card;
+
+		err = mmc_execute_tuning_400(card);
+		if (err)
+			goto free_card;
+#else
+		err = mmc_select_hs400(card);
+		if (err)
+			goto free_card;
+#endif
 	} else if (!mmc_card_hs400es(card)) {
 		/* Select the desired bus width optionally */
 		err = mmc_select_bus_width(card);
@@ -1873,6 +1886,14 @@ static int mmc_can_poweroff_notify(const struct mmc_card *card)
 		(card->ext_csd.power_off_notification == EXT_CSD_POWER_ON);
 }
 
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+int export_mmc_can_poweroff_notify(const struct mmc_card *card)
+{
+    return mmc_can_poweroff_notify(card);
+}
+EXPORT_SYMBOL(export_mmc_can_poweroff_notify);
+#endif
+
 static int mmc_poweroff_notify(struct mmc_card *card, unsigned int notify_type)
 {
 	unsigned int timeout = card->ext_csd.generic_cmd6_time;
@@ -1894,6 +1915,15 @@ static int mmc_poweroff_notify(struct mmc_card *card, unsigned int notify_type)
 
 	return err;
 }
+
+
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+int export_mmc_poweroff_notify(struct mmc_card *card, unsigned int notify_type)
+{
+    return mmc_poweroff_notify(card,notify_type);
+}
+EXPORT_SYMBOL(export_mmc_poweroff_notify);
+#endif
 
 /*
  * Host is being removed. Free up the current card.
@@ -2079,12 +2109,20 @@ static int mmc_runtime_resume(struct mmc_host *host)
 
 static int mmc_can_reset(struct mmc_card *card)
 {
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+	/*
+	 no matter emmc support reset func or not, try to process emmc reinitial flow.
+	 this func can enable by setting ext_csd[EXT_CSD_RST_N_FUNCTION]
+	 */
+	return 1;
+#else
 	u8 rst_n_function;
 
 	rst_n_function = card->ext_csd.rst_n_function;
 	if ((rst_n_function & EXT_CSD_RST_N_EN_MASK) != EXT_CSD_RST_N_ENABLED)
 		return 0;
 	return 1;
+#endif
 }
 
 static int mmc_reset(struct mmc_host *host)

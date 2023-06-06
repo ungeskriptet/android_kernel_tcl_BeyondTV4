@@ -2785,19 +2785,26 @@ static int module_sig_check(struct load_info *info, int flags)
 {
 	int err = -ENOKEY;
 	const unsigned long markerlen = sizeof(MODULE_SIG_STRING) - 1;
+        const unsigned long new_version_markerlen = sizeof(MODULE_NEW_VERSION_SIG_STRING) - 1;
 	const void *mod = info->hdr;
 
 	/*
 	 * Require flags == 0, as a module with version information
 	 * removed is no longer the module that was signed
 	 */
-	if (flags == 0 &&
-	    info->len > markerlen &&
-	    memcmp(mod + info->len - markerlen, MODULE_SIG_STRING, markerlen) == 0) {
-		/* We truncate the module to discard the signature */
-		info->len -= markerlen;
-		err = mod_verify_sig(mod, &info->len);
-	}
+	if(flags == 0) {
+        	if (info->len > markerlen &&
+        	    memcmp(mod + info->len - markerlen, MODULE_SIG_STRING, markerlen) == 0) {
+        		/* We truncate the module to discard the signature */
+        		info->len -= markerlen;
+        		err = mod_verify_sig(mod, &info->len);
+        	} else if(info->len > new_version_markerlen &&
+        	    memcmp(mod + info->len - new_version_markerlen, MODULE_NEW_VERSION_SIG_STRING, new_version_markerlen) == 0) {
+                        /* We truncate the module to discard the signature */
+        		info->len -= new_version_markerlen;
+        		err = mod_verify_sig_new(mod, &info->len);
+                }
+        }
 
 	if (!err) {
 		info->sig_ok = true;
@@ -4148,10 +4155,8 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 static void cfi_init(struct module *mod)
 {
 #ifdef CONFIG_CFI_CLANG
-	preempt_disable();
 	mod->cfi_check =
 		(cfi_check_fn)mod_find_symname(mod, CFI_CHECK_FN_NAME);
-	preempt_enable();
 	cfi_module_add(mod, module_addr_min, module_addr_max);
 #endif
 }

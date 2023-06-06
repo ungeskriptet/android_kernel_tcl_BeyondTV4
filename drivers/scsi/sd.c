@@ -2481,6 +2481,177 @@ static int sd_try_rc16_first(struct scsi_device *sdp)
 		return 1;
 	return 0;
 }
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+// add by cfyeh
+#ifdef CONFIG_SD_WM_COMMAND
+// codes from static void sd_probe_async(void *data, async_cookie_t cookie)
+static void scsi_device_check_async(void *data, async_cookie_t cookie)
+{
+	struct scsi_disk *sdkp = data;
+	struct scsi_device *sdp;
+	struct gendisk *gd;
+	u32 index;
+	struct device *dev;
+
+	sdp = sdkp->device;
+	sdp->changed = 0; // add by cfyeh
+#if 1 /* use new gendisk */
+	gd = alloc_disk(SD_MINORS);
+	if (!gd)
+		goto out_free;
+
+	memcpy(gd->disk_name, sdkp->disk->disk_name, sizeof(sdkp->disk->disk_name));
+	del_gendisk(sdkp->disk);
+
+	sdkp->disk = gd;
+#else /* old gendisk, can not call add_disk(gd); */
+	gd = sdkp->disk;
+#endif
+	index = sdkp->index;
+	dev = &sdp->sdev_gendev;
+
+	gd->major = sd_major((index & 0xf0) >> 4);
+	gd->first_minor = ((index & 0xf) << 4) | (index & 0xfff00);
+	gd->minors = SD_MINORS;
+
+	gd->fops = &sd_fops;
+	gd->private_data = &sdkp->driver;
+	gd->queue = sdkp->device->request_queue;
+
+	// add by cfyeh
+	gd->physical_sector = 1;
+
+	/* defaults, until the device tells us otherwise */
+	sdp->sector_size = 512;
+	sdkp->capacity = 0;
+	sdkp->media_present = 1;
+	sdkp->write_prot = 0;
+	sdkp->WCE = 0;
+	sdkp->RCD = 0;
+	sdkp->ATO = 0;
+	sdkp->first_scan = 1;
+	sdkp->max_medium_access_timeouts = SD_MAX_MEDIUM_TIMEOUTS;
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	strcpy(gd->port_structure, sdp->host->port_structure);
+#endif
+
+	sd_revalidate_disk(gd);
+
+	blk_queue_prep_rq(sdp->request_queue, sd_prep_fn);
+	blk_queue_unprep_rq(sdp->request_queue, sd_unprep_fn);
+
+	gd->driverfs_dev = &sdp->sdev_gendev;
+	gd->flags = GENHD_FL_EXT_DEVT;
+	if (sdp->removable) {
+		gd->flags |= GENHD_FL_REMOVABLE;
+		gd->events |= DISK_EVENT_MEDIA_CHANGE;
+	}
+
+	add_disk(gd);
+	if (sdkp->capacity)
+		sd_dif_config_host(sdkp);
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+        if(gd->part_num == -1)
+                gd->part_num = 0;
+#endif
+	sd_revalidate_disk(gd);
+
+	sd_printk(KERN_NOTICE, sdkp, "Attached SCSI %sdisk\n",
+		  sdp->removable ? "removable " : "");
+	scsi_autopm_put_device(sdp);
+	put_device(&sdkp->dev);
+
+	return;
+out_free:
+	kfree(sdkp);
+	return;
+}
+
+static int wm_command_ioctl(struct scsi_disk *sdkp, struct scsi_device *sdp,
+						unsigned long arg)
+{
+	unsigned char cmd[16];
+	unsigned char buffer[512];
+	int len = sizeof(buffer);
+	struct scsi_sense_hdr sshdr;
+	int sense_valid = 0;
+	int the_result;
+	int retries = 3, reset_retries = READ_CAPACITY_RETRIES_ON_RESET;
+
+	switch(((struct wm_cmd __user *)arg)->cmd) {
+		case 0xf0: // read serial
+			len = 512;
+			break;
+		case 0xf1: // write serial, not support now
+			return -EINVAL;
+			//len = 512;
+			//break;
+		case 0xf2: // read sectors, not support now
+			return -EINVAL;
+			//len = 512;
+			//break;
+		case 0xf3: // write sectors, not support now
+			return -EINVAL;
+			//len = 512;
+			//break;
+		case 0xf4: // read capacity
+			len = 4;
+			break;
+		case 0xf5: // change mode
+			len = 0;
+			break;
+		default:
+			return -EINVAL;
+			break;
+	}
+
+	do {
+		memset(&cmd, 0, sizeof(cmd));
+		memset(buffer, 0, sizeof(buffer));
+		cmd[0] = ((struct wm_cmd __user *)arg)->cmd;
+
+		the_result = scsi_execute_req(sdp, cmd, DMA_BIDIRECTIONAL,
+					buffer, len, &sshdr,
+					SD_TIMEOUT, SD_MAX_RETRIES, NULL);
+
+		if (media_not_present(sdkp, &sshdr))
+			return -ENODEV;
+
+		if (the_result) {
+			sense_valid = scsi_sense_valid(&sshdr);
+			if (sense_valid &&
+			    sshdr.sense_key == UNIT_ATTENTION &&
+			    sshdr.asc == 0x29 && sshdr.ascq == 0x00)
+				/* Device reset might occur several times,
+				 * give it one more chance */
+				if (--reset_retries > 0)
+					continue;
+		}
+		retries--;
+
+	} while (the_result && retries);
+
+	if (the_result) {
+		sd_printk(KERN_NOTICE, sdkp, "WM_COMMAND failed\n");
+		read_capacity_error(sdkp, sdp, &sshdr, sense_valid, the_result);
+		return -EINVAL;
+	}
+
+	if (((struct wm_cmd __user *)arg)->cmd == 0xf5) {
+		get_device(&sdkp->dev);	/* prevent release before async_schedule */
+		async_schedule_domain(scsi_device_check_async, sdkp, &scsi_sd_probe_domain);
+	} else if (((struct wm_cmd __user *)arg)->cmd == 0xf4) {
+		if ((the_result = copy_to_user(((struct wm_cmd __user *)arg)->size, buffer, len)))
+			return -EFAULT;
+	} else if (len) {
+		if ((the_result = copy_to_user(((struct wm_cmd __user *)arg)->data, buffer, len)))
+			return -EFAULT;
+	}
+
+	return the_result;
+}
+#endif /* CONFIG_SD_WM_COMMAND */
+#endif
 
 /*
  * read disk capacity
@@ -3341,6 +3512,10 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 	sdkp->first_scan = 1;
 	sdkp->max_medium_access_timeouts = SD_MAX_MEDIUM_TIMEOUTS;
 
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	strcpy(gd->port_structure, sdp->host->port_structure);
+#endif
+
 	sd_revalidate_disk(gd);
 
 	gd->flags = GENHD_FL_EXT_DEVT;
@@ -3353,6 +3528,11 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 	device_add_disk(dev, gd);
 	if (sdkp->capacity)
 		sd_dif_config_host(sdkp);
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+	if(gd->part_num == -1)
+                gd->part_num = 0;
+#endif
 
 	sd_revalidate_disk(gd);
 
@@ -3815,3 +3995,253 @@ static void sd_print_result(const struct scsi_disk *sdkp, const char *msg,
 			  msg, host_byte(result), driver_byte(result));
 }
 
+extern int get_mount_path_one(struct super_block *sb, char *buf, size_t size); /* fs/namespace.c */
+int get_disk_mount_path_one(struct scsi_device *sdev, char *buf, size_t size) {
+	struct scsi_disk *sdkp;
+	struct gendisk *disk;
+	struct hd_struct *part;
+	struct disk_part_iter piter;
+	struct block_device *bdev;
+	int ret = 0;
+
+	mutex_lock(&sd_ref_mutex); /* hold the lock of scsi disk */
+	/* 1. From scsi_sysfs.c::scsi_sysfs_add_sdev,
+	 *       we know the struct device pointer argument for sd_probe is &sdev->sdev_gendev */
+	/* 2. From sd_probe: dev_set_drvdata(dev, sdkp),
+	 *       it links device and scsi_disk */
+	sdkp = (struct scsi_disk *)dev_get_drvdata(&sdev->sdev_gendev);
+	if (sdkp == NULL || (disk = sdkp->disk) == NULL) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	bdev = bdget_disk(disk, 0); // try to get block device of partition 0 of disk
+	if (bdev != NULL) {
+		mutex_lock(&bdev->bd_mutex);
+		if (bdev->bd_super != NULL) {
+			ret = get_mount_path_one(bdev->bd_super, buf, size);
+			if (!ret) {
+				mutex_unlock(&bdev->bd_mutex);
+				bdput(bdev);
+				goto out;
+			}
+		}
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+
+	/* announce possible partitions */
+	disk_part_iter_init(&piter, disk, 0);
+	while ((part = disk_part_iter_next(&piter))) {
+		bdev = bdget_disk(disk, part->partno); // get block device from correspond partition number of gendisk.
+		if (bdev == NULL)
+			continue;
+
+		mutex_lock(&bdev->bd_mutex);
+		if (bdev->bd_super != NULL) {
+			ret = get_mount_path_one(bdev->bd_super, buf, size);
+			if (!ret) {   /* okay, we got the path, break the loop. */
+				mutex_unlock(&bdev->bd_mutex);
+				bdput(bdev);
+				break;
+			}
+		}
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+	disk_part_iter_exit(&piter);
+
+	out:
+	mutex_unlock(&sd_ref_mutex);
+	return ret;
+}
+EXPORT_SYMBOL(get_disk_mount_path_one);
+
+
+extern void umount_sb_mounted_points(struct super_block *sb);
+void umount_disk_mounted_points(struct scsi_device *sdev) {
+	struct scsi_disk *sdkp;
+	struct gendisk *disk;
+	struct hd_struct *part;
+	struct disk_part_iter piter;
+	struct block_device *bdev;
+
+	mutex_lock(&sd_ref_mutex); /* hold the lock of scsi disk */
+	/* 1. From scsi_sysfs.c::scsi_sysfs_add_sdev,
+	 *       we know the struct device pointer argument for sd_probe is &sdev->sdev_gendev */
+	/* 2. From sd_probe: dev_set_drvdata(dev, sdkp),
+	 *       it links device and scsi_disk */
+	sdkp = (struct scsi_disk *)dev_get_drvdata(&sdev->sdev_gendev);
+	if (sdkp == NULL || (disk = sdkp->disk) == NULL)
+		goto out;
+
+	bdev = bdget_disk(disk, 0); // try to get block device of partition 0 of disk
+	if (bdev != NULL) {
+		mutex_lock(&bdev->bd_mutex);
+		if (bdev->bd_super != NULL)
+			umount_sb_mounted_points(bdev->bd_super);
+
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+
+	/* announce possible partitions */
+	disk_part_iter_init(&piter, disk, 0);
+	while ((part = disk_part_iter_next(&piter))) {
+		bdev = bdget_disk(disk, part->partno); // get block device from correspond partition number of gendisk.
+		if (bdev == NULL)
+			continue;
+
+		mutex_lock(&bdev->bd_mutex);
+		if (bdev->bd_super != NULL)
+			umount_sb_mounted_points(bdev->bd_super);
+
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+	disk_part_iter_exit(&piter);
+
+	out:
+	mutex_unlock(&sd_ref_mutex);
+}
+EXPORT_SYMBOL(umount_disk_mounted_points);
+
+
+/**
+ * wait_umount_complete_timeout - wait until the mount points related with @sdev or @timeout elapsed.
+ * @sdev: scsi device to operate
+ * @timeout: timeout value in jiffies.
+ *
+ * Returns:
+ * 0 if umount not finished after the @timeout elapsed,
+ * 1 if umount not finished after the @timeout elapsed,
+ * or the remaining jiffies (at least 1) if umount finished
+ * before the @timeout elapsed.
+ **/
+unsigned long wait_umount_complete_timeout(struct scsi_device *sdev, long timeout)
+{
+	struct scsi_disk *sdkp;
+	struct gendisk *disk;
+	struct hd_struct *part;
+	struct disk_part_iter piter;
+	struct block_device *bdev;
+	unsigned long expire;
+
+	if (timeout < 0) {
+		pr_err("[sd] %s(%d) invalid timeout val(%ld)\n", __func__, __LINE__, timeout);
+		return 0;
+	}
+
+	expire = timeout + jiffies;
+
+	/* 1. From scsi_sysfs.c::scsi_sysfs_add_sdev,
+	 *       we know the struct device pointer argument for sd_probe is &sdev->sdev_gendev */
+	/* 2. From sd_probe: dev_set_drvdata(dev, sdkp),
+	 *       it links device and scsi_disk */
+	sdkp = (struct scsi_disk *)dev_get_drvdata(&sdev->sdev_gendev);
+	if (sdkp == NULL || (disk = sdkp->disk) == NULL)
+		goto out_unlock_sd;
+
+	bdev = bdget_disk(disk, 0); // try to get block device of partition 0 of disk
+	if (bdev != NULL) {
+		while (!mutex_trylock(&bdev->bd_mutex)) { /* try to hold the lock of block device */
+			if ((timeout = expire - jiffies) <= 0) {
+				bdput(bdev);
+				goto out_unlock_sd;
+			}
+			msleep(1);
+		}
+		while (bdev->bd_super != NULL) {
+			if ((timeout = expire - jiffies) <= 0) {
+				mutex_unlock(&bdev->bd_mutex);
+				bdput(bdev);
+				goto out_unlock_sd;
+			}
+			msleep(500);
+		}
+		pr_err("[sd] %s umounted \n", disk->disk_name);
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+
+	/* announce possible partitions */
+	disk_part_iter_init(&piter, disk, 0);
+	while ((part = disk_part_iter_next(&piter))) {
+		bdev = bdget_disk(disk, part->partno); // get block device from correspond partition number of gendisk.
+		if (bdev == NULL)
+			continue;
+
+		while (!mutex_trylock(&bdev->bd_mutex)) { /* try to hold the lock of block device */
+			if ((timeout = expire - jiffies) <= 0) {
+				bdput(bdev);
+				goto out_iterator;
+			}
+			msleep(1);
+		}
+
+		while (bdev->bd_super != NULL) {
+			if ((timeout = expire - jiffies) <= 0) {
+				mutex_unlock(&bdev->bd_mutex);
+				bdput(bdev);
+				goto out_iterator;
+			}
+			msleep(500);
+		}
+		pr_err("[sd] %s umounted \n", dev_name(&part->__dev));
+
+		mutex_unlock(&bdev->bd_mutex);
+		bdput(bdev);
+	}
+	out_iterator:
+	disk_part_iter_exit(&piter);
+	out_unlock_sd:
+	return timeout < 0 ? 0 : timeout;
+}
+EXPORT_SYMBOL(wait_umount_complete_timeout);
+
+
+void announce_disk_parts_to_user(struct scsi_device *sdev, enum kobject_action action)
+{
+	struct scsi_disk *sdkp;
+	struct gendisk *disk;
+	struct device *dev;
+	struct hd_struct *part;
+	struct disk_part_iter piter;
+	int err = 0;
+
+	mutex_lock(&sd_ref_mutex); /* hold the lock of scsi disk */
+	/* 1. From scsi_sysfs.c::scsi_sysfs_add_sdev,
+	 *       we know the struct device pointer argument for sd_probe is &sdev->sdev_gendev */
+	/* 2. From sd_probe: dev_set_drvdata(dev, sdkp),
+	 *       it links device and scsi_disk */
+	sdkp = (struct scsi_disk *)dev_get_drvdata(&sdev->sdev_gendev);
+	if (sdkp == NULL || (disk = sdkp->disk) == NULL)
+		goto out;
+
+	disk = sdkp->disk;
+	dev = disk_to_dev(disk);
+	if (!dev)
+		goto out;
+
+	/* announce disk after possible partitions are created */
+	dev_set_uevent_suppress(dev, 0);
+	err = kobject_uevent(&dev->kobj, action);
+	if (dev_name(dev) && !strncmp(dev_name(dev), "sd", 2)) /* Possibly is scsi disk */
+		pr_err("[sd] %s send uevent action(%d), ret(%d) \n", dev_name(dev), action, err);
+
+	/* announce possible partitions */
+	disk_part_iter_init(&piter, disk, 0);
+	while ((part = disk_part_iter_next(&piter))) {
+		struct device *part_dev = part_to_dev(part);
+		if (!part_dev)
+			continue;
+		err = kobject_uevent(&part_dev->kobj, action);
+		if (dev_name(part_dev) && !strncmp(dev_name(part_dev), "sd", 2)) /* Possibly is scsi disk */
+			pr_err("[sd] %s send uevent action(%d), ret(%d) \n", dev_name(part_dev), action, err);
+	}
+	disk_part_iter_exit(&piter);
+
+	out:
+	mutex_unlock(&sd_ref_mutex);
+}
+EXPORT_SYMBOL(announce_disk_parts_to_user);

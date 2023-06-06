@@ -1,5 +1,10 @@
 menu "Platform selection"
 
+config ARCH_SHEIPA
+	bool "Realtek Sheipa ARMv8 Platform"
+	help
+	  This enables support for the Realtek Sheipa ARMv8 platform.
+
 config ARCH_ACTIONS
 	bool "Actions Semi Platforms"
 	select OWL_TIMER
@@ -81,6 +86,29 @@ config ARCH_LG1K
 	bool "LG Electronics LG1K SoC Family"
 	help
 	  This enables support for LG Electronics LG1K SoC Family
+
+config ARCH_RTK287O
+    bool "Realtek 287o boards"
+    select SYS_HAS_EARLY_PRINTK
+    select CPU_SUPPORTS_32BIT_KERNEL
+    select SYS_SUPPORTS_32BIT_KERNEL
+    select CPU_V7
+    select ARM_GIC
+    select ARM_GIC_V3
+    select GENERIC_CLOCKEVENTS
+    select NEED_MACH_IO_H
+    select HAVE_SMP
+    select HAVE_ARM_SCU
+    select COMMON_CLK if SMP
+    select IO_36
+    select ARCH_HAS_OPP if REALTEK_OF
+    select PM_OPP if REALTEK_OF
+    select HAVE_CLK if REALTEK_OF
+    select COMMON_CLK if REALTEK_OF
+    select RTK_KDRIVER_SUPPORT
+    help
+        This enables support for the Realtek 287o based boards.
+
 
 config ARCH_HISI
 	bool "Hisilicon SoC Family"
@@ -267,3 +295,6 @@ config ARCH_ZYNQMP
 	  This enables support for Xilinx ZynqMP Family
 
 endmenu
+
+source "arch/arm64/mach-rtd287o/Kconfig"
+

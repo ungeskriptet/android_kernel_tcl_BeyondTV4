@@ -3,7 +3,7 @@
 # Makefile for the Linux/MIPS kernel FPU emulation.
 #
 
-obj-y	+= cp1emu.o ieee754dp.o ieee754sp.o ieee754.o \
+obj-$(CONFIG_CPU_HAS_EMU)	+= cp1emu.o ieee754dp.o ieee754sp.o ieee754.o \
 	   dp_div.o dp_mul.o dp_sub.o dp_add.o dp_fsp.o dp_cmp.o dp_simple.o \
 	   dp_tint.o dp_fint.o dp_rint.o dp_maddf.o dp_2008class.o dp_fmin.o \
 	   dp_fmax.o							     \
@@ -12,7 +12,7 @@ obj-y	+= cp1emu.o ieee754dp.o ieee754sp.o ieee754.o \
 	   sp_fmax.o							     \
 	   dsemul.o
 
-lib-y	+= ieee754d.o \
+lib-$(CONFIG_CPU_HAS_EMU)	+= ieee754d.o \
 	   dp_tlong.o dp_flong.o dp_sqrt.o \
 	   sp_tlong.o sp_flong.o sp_sqrt.o
 

@@ -19,6 +19,7 @@
 #include <linux/bootmem.h>
 #include <linux/seq_file.h>
 #include <linux/screen_info.h>
+#include <linux/of_iommu.h>
 #include <linux/of_platform.h>
 #include <linux/init.h>
 #include <linux/kexec.h>
@@ -32,6 +33,7 @@
 #include <linux/compiler.h>
 #include <linux/sort.h>
 #include <linux/psci.h>
+#include <linux/clk-provider.h>
 
 #include <asm/unified.h>
 #include <asm/cp15.h>
@@ -80,6 +82,7 @@ __setup("fpe=", fpe_setup);
 
 extern void init_default_cache_policy(unsigned long);
 extern void paging_init(const struct machine_desc *desc);
+extern void check_ext_mem_size(void);
 extern void early_mm_init(const struct machine_desc *);
 extern void adjust_lowmem_bounds(void);
 extern enum reboot_mode reboot_mode;
@@ -929,9 +932,26 @@ static int __init customize_machine(void)
 	 * machine from the device tree, if no callback is provided,
 	 * otherwise we would always need an init_machine callback.
 	 */
+// RTK_patch: for dt support
+#ifdef CONFIG_REALTEK_OF
+        //of_iommu_init(); //TEMP_BRINGUP_41413
+        if (machine_desc->init_machine)
+                machine_desc->init_machine();
+        of_clk_init(NULL);
+        of_platform_populate(NULL, of_default_bus_match_table,
+                NULL, NULL);
+        return 0;
+
+#else
 	if (machine_desc->init_machine)
 		machine_desc->init_machine();
 
+#ifdef CONFIG_OF
+        else
+                of_platform_populate(NULL, of_default_bus_match_table,
+                                        NULL, NULL);
+#endif
+#endif
 	return 0;
 }
 arch_initcall(customize_machine);
@@ -1071,11 +1091,30 @@ void __init hyp_mode_check(void)
 #endif
 }
 
+#ifdef CONFIG_REALTEK_LOGBUF
+__attribute__((weak)) void rtdlog_parse_bufsize(char * str)
+{
+        return;
+}
+#endif
+
 void __init setup_arch(char **cmdline_p)
 {
 	const struct machine_desc *mdesc;
-
+#ifdef	CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE_EXT
+	extern char __dtb_start[], __dtb_end[];
+	extern int atags_to_fdt(void *atag_list, void *fdt, int total_space);
+#endif
 	setup_processor();
+
+	// RTK_patch: support atags to dtbs
+#ifdef	CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE_EXT
+	#ifdef CONFIG_ARM_ATAG_DTB_COMPAT_EXT
+		atags_to_fdt(phys_to_virt(__atags_pointer), &__dtb_start, 0x4000);
+	#endif
+	memcpy((void *)phys_to_virt(__atags_pointer), (void *)&__dtb_start, (int)&__dtb_end - (int)&__dtb_start);
+#endif
+
 	mdesc = setup_machine_fdt(__atags_pointer);
 	if (!mdesc)
 		mdesc = setup_machine_tags(__atags_pointer, __machine_arch_type);
@@ -1106,11 +1145,15 @@ void __init setup_arch(char **cmdline_p)
 	setup_dma_zone(mdesc);
 	xen_early_init();
 	efi_init();
+    check_ext_mem_size();
 	/*
 	 * Make sure the calculation for lowmem/highmem is set appropriately
 	 * before reserving/allocating any mmeory
 	 */
 	adjust_lowmem_bounds();
+#ifdef CONFIG_REALTEK_LOGBUF
+	rtdlog_parse_bufsize(cmd_line);
+#endif
 	arm_memblock_init(mdesc);
 	/* Memory may have been removed so recalculate the bounds. */
 	adjust_lowmem_bounds();

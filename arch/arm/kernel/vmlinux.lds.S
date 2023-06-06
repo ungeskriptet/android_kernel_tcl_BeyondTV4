@@ -219,6 +219,12 @@ SECTIONS
 		INIT_DATA
 		INIT_SETUP(16)
 		INIT_CALLS
+#ifdef CONFIG_USER_INITCALL
+		. = ALIGN(16);
+		__user_initcall_start = .;
+		*(.user_initcall.init)
+		__user_initcall_end = .;
+#endif
 		CON_INITCALL
 		SECURITY_INITCALL
 		INIT_RAM_FS
@@ -343,7 +349,7 @@ __start_rodata_section_aligned = ALIGN(__start_rodata, 1 << SECTION_SHIFT);
  * binutils is too old (for other reasons as well)
  */
 ASSERT((__proc_info_end - __proc_info_begin), "missing CPU support")
-ASSERT((__arch_info_end - __arch_info_begin), "no machine record defined")
+//ASSERT((__arch_info_end - __arch_info_begin), "no machine record defined")
 
 /*
  * The HYP init code can't be more than a page long,

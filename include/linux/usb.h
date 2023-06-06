@@ -1171,6 +1171,9 @@ struct usb_driver {
 	int (*suspend) (struct usb_interface *intf, pm_message_t message);
 	int (*resume) (struct usb_interface *intf);
 	int (*reset_resume)(struct usb_interface *intf);
+#if 1 // RTK-hacked: Add usb driver complete callback func. This would be called in usb_resume_complete
+	int (*complete)(struct usb_interface *intf);
+#endif
 
 	int (*pre_reset)(struct usb_interface *intf);
 	int (*post_reset)(struct usb_interface *intf);
@@ -1183,6 +1186,9 @@ struct usb_driver {
 	unsigned int supports_autosuspend:1;
 	unsigned int disable_hub_initiated_lpm:1;
 	unsigned int soft_unbind:1;
+#if 1 // RTK-hacked: Add notifier to get pm event.
+	struct notifier_block *pm_notifier;
+#endif
 };
 #define	to_usb_driver(d) container_of(d, struct usb_driver, drvwrap.driver)
 

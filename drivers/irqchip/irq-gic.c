@@ -464,6 +464,13 @@ static void gic_cpu_if_up(struct gic_chip_data *gic)
 }
 
 
+void print_current_irq_records(void)
+{
+	pr_err("gic-v2 not porting yet\n");
+	return;
+}
+
+
 static void gic_dist_init(struct gic_chip_data *gic)
 {
 	unsigned int i;
@@ -1387,7 +1394,12 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 	if (gic_cnt == 0 && !gic_check_eoimode(node, &gic->raw_cpu_base))
 		static_key_slow_dec(&supports_deactivate);
 
+#ifdef CONFIG_REALTEK_OF
+	/* use Legacy support flow*/
+	ret = __gic_init_bases(gic, -1, NULL);
+#else
 	ret = __gic_init_bases(gic, -1, &node->fwnode);
+#endif
 	if (ret) {
 		gic_teardown(gic);
 		return ret;
@@ -1409,6 +1421,7 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 	gic_cnt++;
 	return 0;
 }
+
 IRQCHIP_DECLARE(gic_400, "arm,gic-400", gic_of_init);
 IRQCHIP_DECLARE(arm11mp_gic, "arm,arm11mp-gic", gic_of_init);
 IRQCHIP_DECLARE(arm1176jzf_dc_gic, "arm,arm1176jzf-devchip-gic", gic_of_init);
@@ -1418,6 +1431,9 @@ IRQCHIP_DECLARE(cortex_a7_gic, "arm,cortex-a7-gic", gic_of_init);
 IRQCHIP_DECLARE(msm_8660_qgic, "qcom,msm-8660-qgic", gic_of_init);
 IRQCHIP_DECLARE(msm_qgic2, "qcom,msm-qgic2", gic_of_init);
 IRQCHIP_DECLARE(pl390, "arm,pl390", gic_of_init);
+#ifdef CONFIG_REALTEK_OF
+IRQCHIP_DECLARE(realtek_gic, "realtek,cortex-a9-gic", gic_of_init);
+#endif
 #else
 int gic_of_init_child(struct device *dev, struct gic_chip_data **gic, int irq)
 {

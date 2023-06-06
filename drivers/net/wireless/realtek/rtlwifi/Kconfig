@@ -117,6 +117,71 @@ config RTL8192CU
 
 	If you choose to build it as a module, it will be called rtl8192cu
 
+config RTL8192EU
+    tristate "Realtek 8192E USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8192EU
+
+config RTL8188EU
+    tristate "Realtek 8188E USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8188EU
+
+config RTL8188FU
+    tristate "Realtek 8188F USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8188FU
+
+config RTL8812AU
+    tristate "Realtek 8812AU/8821AU USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8821AU
+
+config RTL8822BU
+    tristate "Realtek 8822B USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8822BU
+
+if RTL8822BU
+	config TEMP_RECOVERY_TV002
+	bool "Enable high temperature recovery for tv002"
+	default n
+	---help---
+	  when high temperature, use 1T2R
+endif
+
+config RTL8822CU
+    tristate "Realtek 8822C USB WiFi"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8822CU
+
+config RTL8822CU_VN
+    tristate "Realtek 8822C USB WiFi(VN)"
+    depends on USB
+    select RTLWIFI
+    select RTLWIFI_USB
+    ---help---
+      Help message of RTL8822CU-VN
+
+
 config RTLWIFI
 	tristate
 	select FW_LOADER

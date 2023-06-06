@@ -232,7 +232,6 @@ int xhci_reset(struct xhci_hcd *xhci)
 	return ret;
 }
 
-
 #ifdef CONFIG_USB_PCI
 /*
  * Set up MSI
@@ -689,8 +688,10 @@ static void xhci_stop(struct usb_hcd *hcd)
 				__func__);
 	}
 
+#ifdef CONFIG_USB_XHCI_PCI
 	if (xhci->quirks & XHCI_AMD_PLL_FIX)
 		usb_amd_dev_put();
+#endif
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"// Disabling event ring interrupts");
@@ -5083,6 +5084,8 @@ void xhci_init_driver(struct hc_driver *drv,
 			drv->reset = over->reset;
 		if (over->start)
 			drv->start = over->start;
+		if (over->get_peer_port_location)
+			drv->get_peer_port_location = over->get_peer_port_location;
 	}
 }
 EXPORT_SYMBOL_GPL(xhci_init_driver);

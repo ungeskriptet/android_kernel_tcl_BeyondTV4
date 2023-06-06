@@ -528,4 +528,16 @@ static inline void print_hex_dump_debug(const char *prefix_str, int prefix_type,
 }
 #endif
 
+#ifdef CONFIG_RTK_DDR_REG_DUMP
+extern void rtk_dump_ddr_reg(void);
+static inline void dump_ddr_reg(void)
+{
+        rtk_dump_ddr_reg();
+}
+#else
+static inline void dump_ddr_reg(void)
+{
+}
+#endif
+
 #endif

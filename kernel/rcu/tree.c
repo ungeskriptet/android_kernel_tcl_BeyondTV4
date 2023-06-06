@@ -1424,7 +1424,7 @@ static inline void panic_on_rcu_stall(void)
 	if (sysctl_panic_on_rcu_stall)
 		panic("RCU Stall\n");
 }
-
+extern void print_current_irq_records(int);
 static void print_other_cpu_stall(struct rcu_state *rsp, unsigned long gpnum)
 {
 	int cpu;
@@ -1432,7 +1432,7 @@ static void print_other_cpu_stall(struct rcu_state *rsp, unsigned long gpnum)
 	unsigned long flags;
 	unsigned long gpa;
 	unsigned long j;
-	int ndetected = 0;
+	int ndetected = 0, stall_cpu = -1;
 	struct rcu_node *rnp = rcu_get_root(rsp);
 	long totqlen = 0;
 
@@ -1467,6 +1467,7 @@ static void print_other_cpu_stall(struct rcu_state *rsp, unsigned long gpnum)
 		if (rnp->qsmask != 0) {
 			for_each_leaf_node_possible_cpu(rnp, cpu)
 				if (rnp->qsmask & leaf_node_cpu_bit(rnp, cpu)) {
+					stall_cpu = cpu;
 					print_cpu_stall_info(rsp, cpu);
 					ndetected++;
 				}
@@ -1481,6 +1482,10 @@ static void print_other_cpu_stall(struct rcu_state *rsp, unsigned long gpnum)
 	pr_cont("(detected by %d, t=%ld jiffies, g=%ld, c=%ld, q=%lu)\n",
 	       smp_processor_id(), (long)(jiffies - rsp->gp_start),
 	       (long)rsp->gpnum, (long)rsp->completed, totqlen);
+	/*force to enable loglevel to 7 for dump backtrace*/
+	console_loglevel = 7;
+	print_current_irq_records(stall_cpu);
+
 	if (ndetected) {
 		rcu_dump_cpu_stacks(rsp);
 
@@ -1527,6 +1532,9 @@ static void print_cpu_stall(struct rcu_state *rsp)
 	 * RCU CPU stall warnings.
 	 */
 	pr_err("INFO: %s self-detected stall on CPU", rsp->name);
+	/*force to enable loglevel to 7 for dump backtrace*/
+	console_loglevel = 7;
+	print_current_irq_records(smp_processor_id());
 	print_cpu_stall_info_begin();
 	print_cpu_stall_info(rsp, smp_processor_id());
 	print_cpu_stall_info_end();

@@ -804,6 +804,163 @@ static int open_port(struct inode *inode, struct file *filp)
 	return capable(CAP_SYS_RAWIO) ? 0 : -EPERM;
 }
 
+#ifdef CONFIG_REALTEK_DEV_MEM
+#include <linux/pageremap.h>
+
+#define MEM_IOCQALLOC           _IO('k', 0x20)
+#define MEM_IOCQFREE            _IO('k', 0x21)
+
+struct mem_record_head {
+	struct list_head        list;
+	struct mutex            mutex;
+};
+
+struct mem_record_node {
+	struct list_head        list;
+	unsigned long           addr;
+};
+
+static int mmap_rtkmem(struct file *file, struct vm_area_struct *vma)
+{
+	size_t size = vma->vm_end - vma->vm_start;
+
+	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size))
+		return -EINVAL;
+
+	if (!private_mapping_ok(vma))
+		return -ENOSYS;
+
+	if (!range_is_allowed(vma->vm_pgoff, size))
+		return -EPERM;
+
+	if (!phys_mem_access_prot_allowed(file, vma->vm_pgoff, size,
+						&vma->vm_page_prot))
+		return -EINVAL;
+
+	if (file->f_flags & O_DSYNC)
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	vma->vm_ops = &mmap_mem_ops;
+
+	/* Remap-pfn-range will mark the range VM_IO */
+	if (remap_pfn_range(vma,
+			    vma->vm_start,
+			    vma->vm_pgoff,
+			    size,
+			    vma->vm_page_prot)) {
+		return -EAGAIN;
+	}
+
+	if (pfn_valid(vma->vm_pgoff))
+		vma->vm_flags = (vma->vm_flags | VM_PLI);
+
+	return 0;
+}
+
+static int open_rtkmem(struct inode * inode, struct file * filp)
+{
+	return 0;
+}
+
+static int release_rtkmem(struct inode * inode, struct file * filp)
+{
+	if (filp->private_data != NULL) {
+		struct mem_record_node *rec, *tmp;
+		struct list_head *plist;
+
+		plist = &((struct mem_record_head *)filp->private_data)->list;
+		list_for_each_entry_safe(rec, tmp, plist, list) {
+//			printk("*** remove2: %lx \n", rec->addr);
+			dvr_free_page(pfn_to_page(rec->addr));
+			list_del(&rec->list);
+			kfree(rec);
+		}
+
+		kfree(filp->private_data);
+		filp->private_data = NULL;
+	}
+	return 0;
+}
+
+static long ioctl_rtkmem(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	long ret = 0;
+
+	switch (cmd) {
+	case MEM_IOCQALLOC:
+	{
+		struct page *page;
+		struct mem_record_node *record;
+
+		page = dvr_malloc_page(arg, 0);
+		if (page != 0)
+			ret = page_to_pfn(page) << PAGE_SHIFT;
+		else
+			return -ENOMEM;
+
+		if (filp->private_data == NULL) {
+			struct mem_record_head *head;
+			head = kmalloc(sizeof(struct mem_record_head), GFP_KERNEL);
+			INIT_LIST_HEAD(&head->list);
+			mutex_init(&head->mutex);
+			filp->private_data = head;
+		}
+
+		if (mutex_lock_interruptible(&((struct mem_record_head *)filp->private_data)->mutex)) {
+			// we use return value 1 to represent an signal is caught...
+			printk("mem: interrupted by an signal...\n");
+			dvr_free_page(page);
+			return -EAGAIN;
+		}
+		record = kmalloc(sizeof(struct mem_record_node), GFP_KERNEL);
+		INIT_LIST_HEAD(&record->list);
+		record->addr = page_to_pfn(page);
+		list_add(&record->list, &((struct mem_record_head *)filp->private_data)->list);
+		mutex_unlock(&((struct mem_record_head *)filp->private_data)->mutex);
+	}
+	break;
+
+	case MEM_IOCQFREE:
+	{
+		if (filp->private_data != NULL) {
+			int flag = 0;
+			struct mem_record_node *rec, *tmp;
+			struct list_head *plist;
+
+			if (mutex_lock_interruptible(&((struct mem_record_head *)filp->private_data)->mutex)) {
+				// we use return value 1 to represent an signal is caught...
+				printk("mem: interrupted by an signal...\n");
+				return -EAGAIN;
+			}
+			plist = &((struct mem_record_head *)filp->private_data)->list;
+			list_for_each_entry_safe(rec, tmp, plist, list)
+				if (rec->addr == (arg >> PAGE_SHIFT)) {
+//					printk("*** remove1: %lx \n", rec->addr);
+					list_del(&rec->list);
+					kfree(rec);
+					flag = 1;
+					break;
+				}
+			mutex_unlock(&((struct mem_record_head *)filp->private_data)->mutex);
+
+			if (flag) {
+				dvr_free_page(pfn_to_page(arg >> PAGE_SHIFT));
+			} else {
+				printk("mem: invalid parameter %lu in MEM_IOCQFREE...\n", arg);
+				ret = -EINVAL;
+			}
+		}
+	}
+	break;
+
+	default:
+		return -EINVAL;
+
+	}
+	return ret;
+}
+#endif
+
 #define zero_lseek	null_lseek
 #define full_lseek      null_lseek
 #define write_zero	write_null
@@ -869,6 +1026,18 @@ static const struct file_operations full_fops = {
 	.write		= write_full,
 };
 
+#ifdef CONFIG_REALTEK_DEV_MEM
+static const struct file_operations rtkmem_fops = {
+//	.llseek         = memory_lseek,
+//	.read           = read_mem,
+//	.write          = write_mem,
+	.mmap           = mmap_rtkmem,
+	.open           = open_rtkmem,
+	.release        = release_rtkmem,
+	.unlocked_ioctl = ioctl_rtkmem,
+};
+#endif
+
 static const struct memdev {
 	const char *name;
 	umode_t mode;
@@ -891,6 +1060,9 @@ static const struct memdev {
 	 [9] = { "urandom", 0666, &urandom_fops, 0 },
 #ifdef CONFIG_PRINTK
 	[11] = { "kmsg", 0644, &kmsg_fops, 0 },
+#endif
+#ifdef CONFIG_REALTEK_DEV_MEM
+	[14] = { "rtkmem", 0666, &rtkmem_fops, FMODE_UNSIGNED_OFFSET },
 #endif
 };
 

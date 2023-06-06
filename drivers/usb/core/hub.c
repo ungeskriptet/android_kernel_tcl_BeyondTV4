@@ -18,7 +18,6 @@
 #include <linux/sched/mm.h>
 #include <linux/list.h>
 #include <linux/slab.h>
-#include <linux/kcov.h>
 #include <linux/ioctl.h>
 #include <linux/usb.h>
 #include <linux/usbdevice_fs.h>
@@ -32,9 +31,38 @@
 
 #include <linux/uaccess.h>
 #include <asm/byteorder.h>
+//#include <rtk_kdriver/usb/usb_platform.h>
+#include "rtk_kdriver/usb/usb_platform.h"
 
 #include "hub.h"
 #include "otg_whitelist.h"
+
+/* extra variable */
+int usb3_device_plugin = 0;
+int usb3_device_resume = 0;
+int usb3_phy_modify = 0;
+int usb3_skip_phy_modify = 0;
+int usb2_modify[4] = {0};
+int port_check_count = 0;
+int bdevice = 0;
+int U3PortCnt = 0;
+EXPORT_SYMBOL(usb3_device_plugin);
+EXPORT_SYMBOL(usb3_device_resume);
+EXPORT_SYMBOL(port_check_count);
+EXPORT_SYMBOL(U3PortCnt);
+
+/* add by cfyeh */
+#ifdef CONFIG_USB_XHCI_LOW_POWER_MODE
+
+static int low_power_retry = 0;
+static int force_high_speed = 0;
+#define LOW_POWER_RETRY_TIMES	3
+
+#endif
+/* CONFIG_USB_XHCI_LOW_POWER_MODE */
+
+#define CONTROLLABLE_USB2_HW_LPM
+
 
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define USB_VENDOR_SMSC				0x0424
@@ -53,6 +81,13 @@ static void hub_event(struct work_struct *work);
 
 /* synchronize hub-port add/remove and peering operations */
 DEFINE_MUTEX(usb_port_peer_mutex);
+
+#ifdef CONTROLLABLE_USB2_HW_LPM
+/* determine default value of usb2_hw_lpm_allowed */
+static bool usb2_hw_lpm_allowed_default = 0;
+module_param(usb2_hw_lpm_allowed_default, bool, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(usb2_hw_lpm_allowed_default, "true to allow usb2 hw lpm");
+#endif
 
 /* cycle leds on hubs that aren't blinking for attention */
 static bool blinkenlights;
@@ -400,7 +435,25 @@ static int get_hub_descriptor(struct usb_device *hdev,
 	}
 	return -EINVAL;
 }
+#ifdef CONFIG_USB_HCD_TEST_MODE
+int get_hub_descriptor_port(struct usb_device *hdev, void *data, int size, int port1)
+{
+	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
+	struct usb_device *dev = hub->ports[port1 - 1]->child;
 
+	if (dev) {
+		memset(data, 0, size);
+
+		return usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
+				USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
+				(USB_DT_DEVICE << 8), 0, data, size,
+				USB_CTRL_GET_TIMEOUT);
+
+	} else
+		return 0;
+}
+EXPORT_SYMBOL_GPL(get_hub_descriptor_port);
+#endif
 /*
  * USB 2.0 spec Section 11.24.2.1
  */
@@ -4371,7 +4424,11 @@ static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev)
 
 	if ((udev->bos->ext_cap->bmAttributes & cpu_to_le32(USB_BESL_SUPPORT)) ||
 			connect_type == USB_PORT_CONNECT_TYPE_HARD_WIRED) {
+#ifdef CONTROLLABLE_USB2_HW_LPM
+		udev->usb2_hw_lpm_allowed = usb2_hw_lpm_allowed_default;
+#else
 		udev->usb2_hw_lpm_allowed = 1;
+#endif
 		usb_enable_usb2_hardware_lpm(udev);
 	}
 }
@@ -4400,6 +4457,7 @@ static int hub_enable_device(struct usb_device *udev)
  * through any global pointers, it's not necessary to lock the device,
  * but it is still necessary to lock the port.
  */
+extern void MT_Wifi_Reset(int mt_delay);
 static int
 hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 		int retry_counter)
@@ -4596,9 +4654,19 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 				goto fail;
 			}
 			if (r) {
-				if (r != -ENODEV)
+				if (r != -ENODEV) {
 					dev_err(&udev->dev, "device descriptor read/64, error %d\n",
 							r);
+#ifdef CONFIG_CUSTOMER_TV030
+					/* TCL2851-3708 */
+					if (is_MTK_usb_wifi_bt_dev(udev)) {
+						dev_err(&udev->dev, "%s: Cannot read descriptor. We toggle reset pin and disconnect this device\n", __func__);
+						MT_Wifi_Reset(50);
+						retval = -ENODEV;
+						goto fail;
+					}
+#endif
+				}
 				retval = -EMSGSIZE;
 				continue;
 			}
@@ -5210,8 +5278,6 @@ static void hub_event(struct work_struct *work)
 	hub_dev = hub->intfdev;
 	intf = to_usb_interface(hub_dev);
 
-	kcov_remote_start_usb((u64)hdev->bus->busnum);
-
 	dev_dbg(hub_dev, "state %d ports %d chg %04x evt %04x\n",
 			hdev->state, hdev->maxchild,
 			/* NOTE: expects max 15 ports... */
@@ -5318,8 +5384,6 @@ out_hdev_lock:
 	/* Balance the stuff in kick_hub_wq() and allow autosuspend */
 	usb_autopm_put_interface(intf);
 	kref_put(&hub->kref, hub_release);
-
-	kcov_remote_stop();
 }
 
 static const struct usb_device_id hub_id_table[] = {

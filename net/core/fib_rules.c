@@ -503,13 +503,14 @@ int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr *nlh,
 		rule->tun_id = nla_get_be64(tb[FRA_TUN_ID]);
 
 	err = -EINVAL;
+        
+#ifdef CONFIG_NET_L3_MASTER_DEV    
 	if (tb[FRA_L3MDEV]) {
-#ifdef CONFIG_NET_L3_MASTER_DEV
 		rule->l3mdev = nla_get_u8(tb[FRA_L3MDEV]);
-		if (rule->l3mdev != 1)
-#endif
+		if (rule->l3mdev != 1)         
 			goto errout_free;
 	}
+#endif
 
 	rule->action = frh->action;
 	rule->flags = frh->flags;

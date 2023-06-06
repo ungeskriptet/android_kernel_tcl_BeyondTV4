@@ -71,6 +71,13 @@
 #include "xhci-trace.h"
 #include "xhci-mtk.h"
 
+#include <linux/module.h>
+
+#if 0
+static bool dump_ring = false;
+module_param(dump_ring, bool, S_IRUGO|S_IWUSR);
+#endif
+
 /*
  * Returns zero if the TRB isn't in this segment, otherwise it returns the DMA
  * address of the TRB.
@@ -171,13 +178,13 @@ static void inc_deq(struct xhci_hcd *xhci, struct xhci_ring *ring)
 	if (ring->type == TYPE_EVENT) {
 		if (!last_trb_on_seg(ring->deq_seg, ring->dequeue)) {
 			ring->dequeue++;
-			return;
+			goto out;
 		}
 		if (last_trb_on_ring(ring, ring->deq_seg, ring->dequeue))
 			ring->cycle_state ^= 1;
 		ring->deq_seg = ring->deq_seg->next;
 		ring->dequeue = ring->deq_seg->trbs;
-		return;
+		goto out;
 	}
 
 	/* All other rings have link trbs */
@@ -190,6 +197,7 @@ static void inc_deq(struct xhci_hcd *xhci, struct xhci_ring *ring)
 		ring->dequeue = ring->deq_seg->trbs;
 	}
 
+out:
 	trace_xhci_inc_deq(ring);
 
 	return;
@@ -648,10 +656,12 @@ static void xhci_giveback_urb_in_irq(struct xhci_hcd *xhci,
 
 	if (usb_pipetype(urb->pipe) == PIPE_ISOCHRONOUS) {
 		xhci_to_hcd(xhci)->self.bandwidth_isoc_reqs--;
+#ifdef CONFIG_USB_XHCI_PCI
 		if (xhci_to_hcd(xhci)->self.bandwidth_isoc_reqs	== 0) {
 			if (xhci->quirks & XHCI_AMD_PLL_FIX)
 				usb_amd_quirk_pll_enable();
 		}
+#endif
 	}
 	xhci_urb_free_priv(urb_priv);
 	usb_hcd_unlink_urb_from_ep(hcd, urb);
@@ -2318,6 +2328,30 @@ finish_td:
 	return finish_td(xhci, td, ep_trb, event, ep, status);
 }
 
+static int xhci_dump_ring(struct xhci_hcd *xhci, struct xhci_ring *ring)
+{
+	struct xhci_segment     *seg;
+	dma_addr_t              dma;
+	union xhci_trb          *trb;
+	int			i, j;
+
+	seg = ring->first_seg;
+
+	for (i = 0; i < ring->num_segs; i++) {
+		for (j = 0; j < TRBS_PER_SEGMENT; j++) {
+			trb = &seg->trbs[j];
+			dma = seg->dma + j * sizeof(*trb);
+			xhci_err(xhci, "%pad: %s\n", &dma,
+				 xhci_decode_trb(le32_to_cpu(trb->generic.field[0]),
+					 le32_to_cpu(trb->generic.field[1]),
+					 le32_to_cpu(trb->generic.field[2]),
+					 le32_to_cpu(trb->generic.field[3])));
+		}
+		seg = seg->next;
+	}
+	return 0;
+}
+
 /*
  * If this function returns an error condition, it means it got a Transfer
  * event with a corrupted Slot ID, Endpoint ID, or TRB DMA address.
@@ -2603,12 +2637,37 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 				trb_in_td(xhci, ep_ring->deq_seg,
 					  ep_ring->dequeue, td->last_trb,
 					  ep_trb_dma, true);
+#if 1
+				dev_err(&xdev->udev->dev, "[xhci] ESHUTDOWN!! bEndpointAddress=%x, ep_index=%d\n",
+						td->urb->ep->desc.bEndpointAddress, ep_index);
+				xhci_err(xhci, "EVENT RING:\n");
+				xhci_dump_ring(xhci, xhci->event_ring);
+				xhci_err(xhci, "ENDPOINT RING:\n");
+				xhci_dump_ring(xhci, ep_ring);
+#endif
 				return -ESHUTDOWN;
 			}
 
 			skip_isoc_td(xhci, td, event, ep, &status);
 			goto cleanup;
 		}
+
+#if 0
+		dev_err(&xdev->udev->dev, "[xhci] bEndpointAddress=%x, ep_index=%d\n",
+				td->urb->ep->desc.bEndpointAddress, ep_index);
+		if (dump_ring) {
+			dump_ring = false;
+			dev_err(&xdev->udev->dev, "[xhci] ESHUTDOWN!! bEndpointAddress=%x\n",
+					td->urb->ep->desc.bEndpointAddress);
+			xhci_err(xhci, "EVENT RING:\n");
+			xhci_err(xhci, "EVENT RING:\n");
+			xhci_dump_ring(xhci, xhci->event_ring);
+			xhci_err(xhci, "ENDPOINT RING:\n");
+			xhci_dump_ring(xhci, ep_ring);
+		}
+#endif
+
+
 		if (trb_comp_code == COMP_SHORT_PACKET)
 			ep_ring->last_td_was_short = true;
 		else
@@ -2878,6 +2937,9 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 	ret = IRQ_HANDLED;
 
 out:
+	if (ret == IRQ_HANDLED)
+		xhci->irq_count++;
+
 	spin_unlock_irqrestore(&xhci->lock, flags);
 
 	return ret;
@@ -3361,6 +3423,12 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		 */
 		if (enqd_len + trb_buff_len < full_len) {
 			field |= TRB_CHAIN;
+			// FIXME:
+			// Jason Chiu:  H5XBU-486
+			//   Why need this? in 4.4.3 xhci driver didn't have this.
+			//   and we will encounter buffer dma_addr is different from our
+			//   dma_addr in urb->transfer_dma when we run rlink byte-align test.
+#if 0
 			if (trb_is_link(ring->enqueue + 1)) {
 				if (xhci_align_td(xhci, urb, enqd_len,
 						  &trb_buff_len,
@@ -3370,6 +3438,7 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 					td->bounce_seg = ring->enq_seg;
 				}
 			}
+#endif
 		}
 		if (enqd_len + trb_buff_len >= full_len) {
 			field &= ~TRB_CHAIN;
@@ -3852,10 +3921,12 @@ static int xhci_queue_isoc_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	if (HCC_CFC(xhci->hcc_params))
 		xep->next_frame_id = urb->start_frame + num_tds * urb->interval;
 
+#ifdef CONFIG_USB_XHCI_PCI
 	if (xhci_to_hcd(xhci)->self.bandwidth_isoc_reqs == 0) {
 		if (xhci->quirks & XHCI_AMD_PLL_FIX)
 			usb_amd_quirk_pll_disable();
 	}
+#endif
 	xhci_to_hcd(xhci)->self.bandwidth_isoc_reqs++;
 
 	giveback_first_trb(xhci, slot_id, ep_index, urb->stream_id,

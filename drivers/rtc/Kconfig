@@ -1774,6 +1774,14 @@ config RTC_DRV_RTD119X
 	  If you say yes here, you get support for the RTD1295 SoC
 	  Real Time Clock.
 
+config RTC_DRV_RTK
+	tristate "Realtek RTC driver support"
+	depends on HAS_IOMEM
+	depends on OF
+	select RTK_KDRV_RTC
+	help
+	   Realtek RTC driver support
+
 comment "HID Sensor RTC drivers"
 
 config RTC_DRV_HID_SENSOR_TIME

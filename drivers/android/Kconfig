@@ -8,6 +8,12 @@ config ANDROID
 
 if ANDROID
 
+config ANDROID_VERSION
+        int "Number of Android version"
+	default 7
+	help
+		This option tell which android version use.
+
 config ANDROID_BINDER_IPC
 	bool "Android Binder IPC Driver"
 	depends on MMU && !M68K
@@ -19,18 +25,6 @@ config ANDROID_BINDER_IPC
 	  This means one Android process can call a method/routine in another
 	  Android process, using Binder to identify, invoke and pass arguments
 	  between said processes.
-
-config ANDROID_BINDERFS
-	bool "Android Binderfs filesystem"
-	depends on ANDROID_BINDER_IPC
-	default n
-	---help---
-	  Binderfs is a pseudo-filesystem for the Android Binder IPC driver
-	  which can be mounted per-ipc namespace allowing to run multiple
-	  instances of Android.
-	  Each binderfs mount initially only contains a binder-control device.
-	  It can be used to dynamically allocate new binder IPC devices via
-	  ioctls.
 
 config ANDROID_BINDER_DEVICES
 	string "Android Binder devices"
@@ -53,6 +47,12 @@ config ANDROID_BINDER_IPC_SELFTEST
 	  Binder selftest checks the allocation and free of binder buffers
 	  exhaustively with combinations of various buffer sizes and
 	  alignments.
+
+config ANDROID_TV
+	bool "Android TV Drivers"
+	default n
+	---help---
+	  Enable support for various drivers needed on the Android platform without TvServerg
 
 endif # if ANDROID
 

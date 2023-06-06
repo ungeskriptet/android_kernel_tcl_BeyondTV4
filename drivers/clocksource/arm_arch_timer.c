@@ -71,7 +71,11 @@ static int arch_timer_ppi[ARCH_TIMER_MAX_TIMER_PPI];
 
 static struct clock_event_device __percpu *arch_timer_evt;
 
+#if defined(CONFIG_ARCH_RTK285X) || defined(CONFIG_ARCH_RTK287X)
+static enum arch_timer_ppi_nr arch_timer_uses_ppi = ARCH_TIMER_PHYS_SECURE_PPI;
+#else
 static enum arch_timer_ppi_nr arch_timer_uses_ppi = ARCH_TIMER_VIRT_PPI;
+#endif
 static bool arch_timer_c3stop;
 static bool arch_timer_mem_use_virtual;
 static bool arch_counter_suspend_stop;
@@ -1144,6 +1148,53 @@ static enum arch_timer_ppi_nr __init arch_timer_select_ppi(void)
 		return ARCH_TIMER_PHYS_NONSECURE_PPI;
 
 	return ARCH_TIMER_PHYS_SECURE_PPI;
+}
+
+#ifndef CONFIG_ARCH_RTK287X
+extern u32 gic_irq_find_mapping(u32 hwirq);
+#else
+#endif
+// RTK_patch: add timer dev register api
+void arch_timer_dev_register(int freq, int ppi[])
+{
+	int i;
+
+	arch_timer_rate = freq;
+
+	for (i = ARCH_TIMER_PHYS_SECURE_PPI; i < ARCH_TIMER_MAX_TIMER_PPI; i++)
+#ifndef CONFIG_ARCH_RTK287X
+		arch_timer_ppi[i] = gic_irq_find_mapping(ppi[i]);
+#else
+		arch_timer_ppi[i] = ppi[i];
+#endif
+	/*
+	 * If HYP mode is available, we know that the physical timer
+	 * has been configured to be accessible from PL1. Use it, so
+	 * that a guest can use the virtual timer instead.
+	 *
+	 * If no interrupt provided for virtual timer, we'll have to
+	 * stick to the physical timer. It'd better be accessible...
+	 */
+
+	if (is_hyp_mode_available() || !arch_timer_ppi[ARCH_TIMER_VIRT_PPI]) {
+		//arch_timer_use_virtual = false;
+		if (!arch_timer_ppi[ARCH_TIMER_PHYS_SECURE_PPI] ||
+				!arch_timer_ppi[ARCH_TIMER_PHYS_NONSECURE_PPI]) {
+			pr_warn("arch_timer: No interrupt available, giving up\n");
+			return;
+		}
+	}
+
+
+	//pr_err("arch_timer_uses_ppi = %x\n", arch_timer_uses_ppi);
+
+	if (arch_timer_uses_ppi == ARCH_TIMER_VIRT_PPI)
+		arch_timer_read_counter = arch_counter_get_cntvct;
+	else
+		arch_timer_read_counter = arch_counter_get_cntpct;
+
+	arch_timer_register();
+	arch_timer_arch_init();
 }
 
 static int __init arch_timer_of_init(struct device_node *np)

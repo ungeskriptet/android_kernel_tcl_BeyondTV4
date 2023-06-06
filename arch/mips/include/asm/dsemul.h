@@ -52,6 +52,7 @@ extern int mips_dsemul(struct pt_regs *regs, mips_instruction ir,
  *
  * Return: True if an emulation frame was returned from, else false.
  */
+#ifdef CONFIG_CPU_HAS_EMU
 extern bool do_dsemulret(struct pt_regs *xcp);
 
 /**
@@ -88,5 +89,26 @@ extern bool dsemul_thread_rollback(struct pt_regs *regs);
  * before @mm is freed in order to avoid memory leaks.
  */
 extern void dsemul_mm_cleanup(struct mm_struct *mm);
+
+#else
+static inline int do_dsemulret(struct pt_regs *xcp)
+{
+	return 0;
+}
+
+static inline bool dsemul_thread_cleanup(struct task_struct *tsk)
+{
+	return 0;
+}
+
+static inline bool dsemul_thread_rollback(struct pt_regs *regs)
+{
+	return 0;
+}
+
+static inline void dsemul_mm_cleanup(struct mm_struct *mm)
+{
+}
+#endif
 
 #endif /* __MIPS_ASM_DSEMUL_H__ */

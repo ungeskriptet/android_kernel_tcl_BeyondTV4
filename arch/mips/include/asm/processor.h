@@ -152,6 +152,14 @@ struct mips_dsp_state {
 	{0,} \
 }
 
+#define NUM_RADIAX_REGS    26
+
+typedef __u32 radiaxreg_t;
+
+struct mips_radiax_struct {
+	radiaxreg_t radiaxr[NUM_RADIAX_REGS];
+};
+
 struct mips3264_watch_reg_state {
 	/* The width of watchlo is 32 in a 32 bit kernel and 64 in a
 	   64 bit kernel.  We use unsigned long as it has the same
@@ -159,6 +167,10 @@ struct mips3264_watch_reg_state {
 	unsigned long watchlo[NUM_WATCH_REGS];
 	/* Only the mask and IRW bits from watchhi. */
 	u16 watchhi[NUM_WATCH_REGS];
+#if defined(CONFIG_CPU_RLX)
+	unsigned long wmpxmask[NUM_WATCH_REGS];
+	unsigned long wmpvaddr;
+#endif
 };
 
 union mips_watch_reg_state {
@@ -281,6 +293,9 @@ struct thread_struct {
 	/* Saved watch register state, if available. */
 	union mips_watch_reg_state watch;
 
+	/* Saved radiax register state, if available. */
+	struct mips_radiax_struct radiax;
+
 	/* Other stuff associated with the thread. */
 	unsigned long cp0_badvaddr;	/* Last user fault */
 	unsigned long cp0_baduaddr;	/* Last kernel fault accessing USEG */
@@ -303,6 +318,12 @@ struct thread_struct {
 #else
 #define FPAFF_INIT
 #endif /* CONFIG_MIPS_MT_FPAFF */
+
+#ifdef CONFIG_CPU_HAS_RADIAX
+#define RADIAX_INIT	.radiax = {{0,},},
+#else
+#define RADIAX_INIT
+#endif
 
 #define INIT_THREAD  {						\
 	/*							\
@@ -350,6 +371,7 @@ struct thread_struct {
 	 * saved watch register stuff				\
 	 */							\
 	.watch = {{{0,},},},					\
+	RADIAX_INIT						\
 	/*							\
 	 * Other stuff associated with the process		\
 	 */							\

@@ -45,6 +45,10 @@
 
 #define STACK_MAGIC	0xdeadbeef
 
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+#define INVALID_VAL	0xffffffff
+#endif
+
 /**
  * REPEAT_BYTE - repeat the value @x multiple times as an unsigned long value
  * @x: value to repeat
@@ -949,4 +953,26 @@ static inline void ftrace_dump(enum ftrace_dump_mode oops_dump_mode) { }
 	 /* OTHER_WRITABLE?  Generally considered a bad idea. */		\
 	 BUILD_BUG_ON_ZERO((perms) & 2) +					\
 	 (perms))
+
+#ifdef  CONFIG_REALTEK_SCHED_LOG
+//#include <mach/system.h>
+//#include <mach/timex.h>
+
+extern unsigned int            *sched_log_buf_head;
+extern unsigned int            *sched_log_buf_tail;
+extern unsigned int            *sched_log_buf_ptr;
+extern unsigned int            sched_log_flag;
+extern unsigned int            sched_log_time_scale;
+extern unsigned int            sched_log_start_time;
+
+#define TYPE_BLOCK             0xc0000000
+#define TYPE_YIELD             0x40000000
+#define TYPE_PREEMPT           0x80000000
+
+extern unsigned int log_get_time_stamp(void);
+extern void log_sched(int cpu, int pid, int type);
+extern void log_intr_enter(int cpu, int irq);
+extern void log_intr_exit(int cpu, int irq);
+#endif // CONFIG_REALTEK_SCHED_LOG
+
 #endif

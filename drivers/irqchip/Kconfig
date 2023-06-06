@@ -143,6 +143,11 @@ config IRQ_MIPS_CPU
 	select IRQ_DOMAIN_HIERARCHY if GENERIC_IRQ_IPI
 	select GENERIC_IRQ_EFFECTIVE_AFF_MASK
 
+config TAROKO_VEC
+	bool
+	select GENERIC_IRQ_CHIP
+	select IRQ_DOMAIN
+
 config CLPS711X_IRQCHIP
 	bool
 	depends on ARCH_CLPS711X
@@ -250,6 +255,11 @@ config MIPS_GIC
 	select IRQ_DOMAIN_HIERARCHY
 	select MIPS_CM
 
+config TAROKO_GIC
+	bool
+	select GENERIC_IRQ_IPI
+	select IRQ_DOMAIN_HIERARCHY
+
 config INGENIC_IRQ
 	bool
 	depends on MACH_INGENIC
@@ -321,3 +331,8 @@ config IRQ_UNIPHIER_AIDET
 	select IRQ_DOMAIN_HIERARCHY
 	help
 	  Support for the UniPhier AIDET (ARM Interrupt Detector).
+
+config DW_ICTL
+	def_bool y if IRQ_ICTL
+	select GENERIC_IRQ_CHIP
+	select IRQ_DOMAIN

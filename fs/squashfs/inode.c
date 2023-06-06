@@ -60,7 +60,24 @@ static int squashfs_new_inode(struct super_block *sb, struct inode *inode,
 	uid_t i_uid;
 	gid_t i_gid;
 	int err;
+#ifdef CONFIG_SQUASHFS_TV043
+	struct squashfs_sb_info *msblk = sb->s_fs_info;
+        if (msblk->uid)
+                i_uid = msblk->uid;
+        else{
+	        err = squashfs_get_id(sb, le16_to_cpu(sqsh_ino->uid), &i_uid);
+	        if (err)
+		        return err;
+        }
 
+        if (msblk->gid)
+                i_gid = msblk->gid;
+        else {
+	        err = squashfs_get_id(sb, le16_to_cpu(sqsh_ino->guid), &i_gid);
+	        if (err)
+		        return err;
+        }
+#else
 	err = squashfs_get_id(sb, le16_to_cpu(sqsh_ino->uid), &i_uid);
 	if (err)
 		return err;
@@ -68,7 +85,8 @@ static int squashfs_new_inode(struct super_block *sb, struct inode *inode,
 	err = squashfs_get_id(sb, le16_to_cpu(sqsh_ino->guid), &i_gid);
 	if (err)
 		return err;
-
+#endif
+        
 	i_uid_write(inode, i_uid);
 	i_gid_write(inode, i_gid);
 	inode->i_ino = le32_to_cpu(sqsh_ino->inode_number);

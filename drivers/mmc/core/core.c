@@ -146,6 +146,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 	struct mmc_command *cmd = mrq->cmd;
 	int err = cmd->error;
 
+#ifndef CONFIG_MMC_RTKEMMC_PLUS
 	/* Flag re-tuning needed on CRC errors */
 	if ((cmd->opcode != MMC_SEND_TUNING_BLOCK &&
 	    cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200) &&
@@ -153,6 +154,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 	    (mrq->data && mrq->data->error == -EILSEQ) ||
 	    (mrq->stop && mrq->stop->error == -EILSEQ)))
 		mmc_retune_needed(host);
+#endif
 
 	if (err && cmd->retries && mmc_host_is_spi(host)) {
 		if (cmd->resp[0] & R1_SPI_ILLEGAL_COMMAND)
@@ -1000,6 +1002,28 @@ int mmc_execute_tuning(struct mmc_card *card)
 
 	return err;
 }
+
+#ifdef CONFIG_MMC_RTKEMMC_PLUS
+int mmc_execute_tuning_400(struct mmc_card *card)
+{
+	struct mmc_host *host = card->host;
+	u32 opcode;
+	int err;
+
+	if (!host->ops->execute_tuning)
+		return 0;
+
+	opcode = MMC_READ_MULTIPLE_BLOCK;
+
+	err = host->ops->execute_tuning(host, opcode);
+
+	if (err)
+		pr_err("%s: tuning execution 400 failed\n", mmc_hostname(host));
+	else
+		pr_err("%s: ds tuning susccess\n", mmc_hostname(host));
+	return 0;
+}
+#endif
 
 /*
  * Change the bus mode (open drain/push-pull) of a host.

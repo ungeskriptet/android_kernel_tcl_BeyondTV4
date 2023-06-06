@@ -26,7 +26,6 @@ static int squashfs_read_cache(struct page *target_page, u64 block, int bsize,
 /* Read separately compressed datablock directly into page cache */
 int squashfs_readpage_block(struct page *target_page, u64 block, int bsize,
 	int expected)
-
 {
 	struct inode *inode = target_page->mapping->host;
 	struct squashfs_sb_info *msblk = inode->i_sb->s_fs_info;

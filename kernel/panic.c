@@ -130,6 +130,12 @@ EXPORT_SYMBOL(nmi_panic);
  *
  *	This function never returns.
  */
+#ifdef CONFIG_RTK_KDRV_WATCHDOG
+extern void DDR_scan_set_error(int cpu);
+#endif
+
+__weak void DDR_scan_set_error(int cpu) {}
+
 void panic(const char *fmt, ...)
 {
 	static char buf[1024];
@@ -137,7 +143,10 @@ void panic(const char *fmt, ...)
 	long i, i_next = 0;
 	int state = 0;
 	int old_cpu, this_cpu;
+	int old_loglevel = 0;
 	bool _crash_kexec_post_notifiers = crash_kexec_post_notifiers;
+
+	DDR_scan_set_error(0);
 
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
@@ -174,6 +183,10 @@ void panic(const char *fmt, ...)
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
+
+	//change loglevel to ensure that all debug logs can be printed.
+	old_loglevel = console_loglevel;
+	console_loglevel = 6;
 	pr_emerg("Kernel panic - not syncing: %s\n", buf);
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
@@ -293,6 +306,7 @@ void panic(const char *fmt, ...)
 	}
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s\n", buf);
+	console_loglevel = old_loglevel;
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();

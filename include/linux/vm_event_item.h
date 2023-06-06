@@ -20,7 +20,21 @@
 #define HIGHMEM_ZONE(xx)
 #endif
 
+#ifdef CONFIG_ZONE_ZRAM
+#define ZRAM_ZONE(xx) xx##_ZRAM
+#else
+#define ZRAM_ZONE(xx)
+#endif
+
+#ifdef CONFIG_ZONE_ZRAM
+#ifdef CONFIG_ZONE_ZRAM_DISABLE_FALLBACK
+#define FOR_ALL_ZONES(xx) DMA_ZONE(xx) DMA32_ZONE(xx) xx##_NORMAL, HIGHMEM_ZONE(xx) xx##_MOVABLE, ZRAM_ZONE(xx)
+#else
+#define FOR_ALL_ZONES(xx) DMA_ZONE(xx) DMA32_ZONE(xx) xx##_NORMAL, HIGHMEM_ZONE(xx) ZRAM_ZONE(xx), xx##_MOVABLE
+#endif
+#else
 #define FOR_ALL_ZONES(xx) DMA_ZONE(xx) DMA32_ZONE(xx) xx##_NORMAL, HIGHMEM_ZONE(xx) xx##_MOVABLE
+#endif
 
 enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		FOR_ALL_ZONES(PGALLOC),

@@ -298,6 +298,137 @@ struct optee_smc_disable_shm_cache_result {
 	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_ENABLE_SHM_CACHE)
 
 /*
+ * Set drtc register
+ *
+ * Call register usage:
+ * a0	Function ID
+ * a1-6	drtc set info
+ * a7	Preserved
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1-7	Preserved
+ *
+ * Not idle return register usage:
+ * a0	OPTEE_SMC_RETURN_EBADCMD
+ * a1-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_SET_DRTC	13
+#define OPTEE_SMC_SET_DRTC \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_SET_DRTC)
+
+
+
+/*
+ * Get git version
+ *
+ * Call register usage:
+ * a0	Function ID
+ * a1-6	Preserved
+ * a7	Preserved
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1-2	return git version(example: a1 = 0x01234567 a2=0x89abcdef,so git version is:"0123456789abcdef")
+ * a3-7
+ *
+ * Not idle return register usage:
+ * a0	OPTEE_SMC_RETURN_EBADCMD
+ * a1-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_GET_GIT_VERSION    14
+#define OPTEE_SMC_GET_GIT_VERSION \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_GET_GIT_VERSION)
+
+struct optee_smc_calls_get_git_version_result {
+	unsigned long a0;
+	unsigned char git_version[12];
+};
+#ifdef CONFIG_PM
+/*
+ * Send PM suspend/resume cmd to Trusted OS.
+ *
+ * Used by non-secure world to send PM suspend/resume command to secure world.
+ *
+ * Call register usage:
+ * a0	SMC Function ID, OPTEE_SMC_FUNCID_PM_SUSPEND / OPTEE_SMC_FUNCID_PM_RESUME
+ * a1-6	Not used
+ * a7	Hypervisor Client ID register
+ *
+ * Return register usage:
+ * a0	OPTEE_SMC_RETURN_OK if PM command is successfully executed, or OPTEE_SMC_RETURN_EBUSY otherwise.
+ * a1	if OPTEE_SMC_FUNCID_PM_SUSPEND is used, the physical address of Trusted OS resume function.
+ * a2-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_PM_SUSPEND	15
+#define OPTEE_SMC_PM_SUSPEND \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_PM_SUSPEND)
+
+#define OPTEE_SMC_FUNCID_PM_RESUME	16
+#define OPTEE_SMC_PM_RESUME \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_PM_RESUME)
+#endif
+
+/*
+ * RTK LOGBUF setup  
+ *
+ * Call register usage:
+ * a0	Function ID
+ * a1-7	Preserved
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1-7	Preserved
+ *
+ * Not idle return register usage:
+ * a0	OPTEE_SMC_RETURN_EBADCMD
+ * a1-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_SET_LOGBUF	17
+#define OPTEE_SMC_SET_LOGBUF \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_SET_LOGBUF)
+
+/*
+ * RTK HDCP2 OPTEE 
+ *
+ * Call register usage:
+ * a0	Function ID
+ * a1-7	Preserved
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1-7	Preserved
+ *
+ * Not idle return register usage:
+ * a0	OPTEE_SMC_RETURN_EBADCMD
+ * a1-7	Preserved
+ */
+#define OPTEE_SMC_FUNCID_HDCP2	20
+#define OPTEE_SMC_HDCP2 \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_HDCP2)
+
+
+/*
+ * Set cw write enable bit
+ *
+ * Call register usage:
+ * a0	Function ID
+ * a1	CW_OPS_REQ_MAGIC
+ * a2-7	Preserved
+ *
+ * Normal return register usage:
+ * a0	OPTEE_SMC_RETURN_OK
+ * a1-7	Preserved
+ *
+ * Not idle return register usage:
+ * a0	OPTEE_SMC_RETURN_EBADCMD
+ * a1-7	Preserved
+*/
+#define OPTEE_SMC_FUNCID_SET_TP_CW_WEN	18
+#define OPTEE_SMC_SET_TP_CW_WEN \
+	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_SET_TP_CW_WEN)
+
+/*
  * Resume from RPC (for example after processing a foreign interrupt)
  *
  * Call register usage:

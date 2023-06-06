@@ -212,3 +212,13 @@ config USB_UAS
 	  say 'Y' or 'M' here and the kernel will use the right driver.
 
 	  If you compile this driver as a module, it will be named uas.
+
+
+config USB_STORAGE_UMOUNT_BEFORE_SUSPEND
+	bool "Unmount storage disk partitions before pm_suspend"
+	depends on USB_STORAGE && PM
+	---help---
+		We always encounter cannot suspend issue due to storage device
+		is still accessed or hold by someone.
+		This feature let you unmount all mounted pointed of USB storage disk partitions.
+		This will be called in pm notifier chain.

@@ -1519,6 +1519,10 @@ csum_err:
 }
 EXPORT_SYMBOL(tcp_v4_do_rcv);
 
+#ifdef CONFIG_TCP_COUNT
+static unsigned long long tcp_count;
+#endif
+
 int tcp_v4_early_demux(struct sk_buff *skb)
 {
 	const struct iphdr *iph;
@@ -1660,6 +1664,15 @@ int tcp_v4_rcv(struct sk_buff *skb)
 
 	th = (const struct tcphdr *)skb->data;
 	iph = ip_hdr(skb);
+
+#ifdef CONFIG_TCP_COUNT
+	/* don't count traffic destined for internal interfaces
+	   (127.0.0.1), and don't count traffic from port 2049 (NFS) */
+	if (ntohs(th->source) != 2049 &&
+	    (iph->daddr & 0xff) != 127)
+		tcp_count += iph->ihl*4 + skb->len;
+#endif
+
 lookup:
 	sk = __inet_lookup_skb(&tcp_hashinfo, skb, __tcp_hdrlen(th), th->source,
 			       th->dest, sdif, &refcounted);
@@ -2203,6 +2216,28 @@ int tcp_seq_open(struct inode *inode, struct file *file)
 }
 EXPORT_SYMBOL(tcp_seq_open);
 
+#ifdef CONFIG_TCP_COUNT
+
+static int tcpcount_proc_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%llu\n", tcp_count);
+	return 0;
+}
+
+static int tcpcount_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tcpcount_proc_show, NULL);
+}
+
+static const struct file_operations tcpcount_proc_fops = {
+    .open       = tcpcount_proc_open,
+    .read       = seq_read,
+    .llseek     = seq_lseek,
+    .release    = single_release,
+};
+
+#endif
+
 int tcp_proc_register(struct net *net, struct tcp_seq_afinfo *afinfo)
 {
 	int rc = 0;
@@ -2215,7 +2250,7 @@ int tcp_proc_register(struct net *net, struct tcp_seq_afinfo *afinfo)
 	p = proc_create_data(afinfo->name, S_IRUGO, net->proc_net,
 			     afinfo->seq_fops, afinfo);
 	if (!p)
-		rc = -ENOMEM;
+		return -ENOMEM;
 	return rc;
 }
 EXPORT_SYMBOL(tcp_proc_register);
@@ -2378,6 +2413,9 @@ static struct tcp_seq_afinfo tcp4_seq_afinfo = {
 
 static int __net_init tcp4_proc_init_net(struct net *net)
 {
+#ifdef CONFIG_TCP_COUNT
+	(void) proc_create("tcp_count", 0, net->proc_net, &tcpcount_proc_fops);
+#endif
 	return tcp_proc_register(net, &tcp4_seq_afinfo);
 }
 

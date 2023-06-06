@@ -341,13 +341,6 @@ static unsigned long cached_align;
 
 static unsigned long vmap_area_pcpu_hole;
 
-static atomic_long_t nr_vmalloc_pages;
-
-unsigned long vmalloc_nr_pages(void)
-{
-	return atomic_long_read(&nr_vmalloc_pages);
-}
-
 static struct vmap_area *__find_vmap_area(unsigned long addr)
 {
 	struct rb_node *n = vmap_area_root.rb_node;
@@ -400,6 +393,8 @@ static void __insert_vmap_area(struct vmap_area *va)
 }
 
 static void purge_vmap_area_lazy(void);
+
+void dump_vmallocinfo(void);
 
 static BLOCKING_NOTIFIER_HEAD(vmap_notify_list);
 
@@ -543,9 +538,11 @@ overflow:
 		}
 	}
 
-	if (!(gfp_mask & __GFP_NOWARN) && printk_ratelimit())
+	if (!(gfp_mask & __GFP_NOWARN) && printk_ratelimit()) {
 		pr_warn("vmap allocation for size %lu failed: use vmalloc=<size> to increase size\n",
 			size);
+		dump_vmallocinfo();
+	}
 	kfree(va);
 	return ERR_PTR(-EBUSY);
 }
@@ -1551,7 +1548,6 @@ static void __vunmap(const void *addr, int deallocate_pages)
 			BUG_ON(!page);
 			__free_pages(page, 0);
 		}
-		atomic_long_sub(area->nr_pages, &nr_vmalloc_pages);
 
 		kvfree(area->pages);
 	}
@@ -1719,14 +1715,12 @@ static void *__vmalloc_area_node(struct vm_struct *area, gfp_t gfp_mask,
 		if (unlikely(!page)) {
 			/* Successfully allocated i pages, free them in __vunmap() */
 			area->nr_pages = i;
-			atomic_long_add(area->nr_pages, &nr_vmalloc_pages);
 			goto fail;
 		}
 		area->pages[i] = page;
 		if (gfpflags_allow_blocking(gfp_mask|highmem_mask))
 			cond_resched();
 	}
-	atomic_long_add(area->nr_pages, &nr_vmalloc_pages);
 
 	if (map_vm_area(area, prot, pages))
 		goto fail;
@@ -2754,8 +2748,12 @@ static int s_show(struct seq_file *m, void *p)
 	seq_printf(m, "0x%pK-0x%pK %7ld",
 		v->addr, v->addr + v->size, v->size);
 
-	if (v->caller)
-		seq_printf(m, " %pS", v->caller);
+	if (v->caller) {
+        if (v->flags & VM_DVR)
+            seq_printf(m, " %pS [DVR]", v->caller);
+        else
+            seq_printf(m, " %pS", v->caller);
+    }
 
 	if (v->nr_pages)
 		seq_printf(m, " pages=%d", v->nr_pages);
@@ -2781,6 +2779,114 @@ static int s_show(struct seq_file *m, void *p)
 	show_numa_info(m, v);
 	seq_putc(m, '\n');
 	return 0;
+}
+
+static void *my_start(void)
+	__acquires(&vmap_area_lock)
+{
+	struct vmap_area *va;
+
+	spin_lock(&vmap_area_lock);
+	va = list_entry((&vmap_area_list)->next, typeof(*va), list);
+	if (&va->list != &vmap_area_list) {
+		va = list_entry(va->list.next, typeof(*va), list);
+
+		if (&va->list != &vmap_area_list)
+			return va;
+	}
+
+	return NULL;
+}
+
+static void *my_next(void *p)
+{
+	struct vmap_area *va = p, *next;
+
+	next = list_entry(va->list.next, typeof(*va), list);
+	if (&next->list != &vmap_area_list)
+		return next;
+
+	pr_err("my_next, null\n");
+
+	return NULL;
+}
+
+static void my_stop(void *p)
+	__releases(&vmap_area_lock)
+{
+	spin_unlock(&vmap_area_lock);
+}
+
+static int my_show(void *p)
+{
+	struct vmap_area *va = p;
+	struct vm_struct *v;
+	char my_str[256];
+
+	/*
+	 * s_show can encounter race with remove_vm_area, !VM_VM_AREA on
+	 * behalf of vmap area is being tear down or vm_map_ram allocation.
+	 */
+	if (!(va->flags & VM_VM_AREA))
+		return 0;
+
+	v = va->vm;
+
+	sprintf(my_str, "0x%p-0x%p %9ld",
+		v->addr, v->addr + v->size, v->size);
+
+	if (v->caller)
+        sprintf(my_str, "%s %pS", my_str, v->caller);
+
+	if (v->nr_pages)
+		sprintf(my_str, "%s pages=%d", my_str, v->nr_pages);
+
+	if (v->phys_addr)
+		sprintf(my_str, "%s phys=%llx", my_str, (unsigned long long)v->phys_addr);
+
+	if (v->flags & VM_IOREMAP)
+		sprintf(my_str, "%s ioremap", my_str);
+
+	if (v->flags & VM_ALLOC)
+		sprintf(my_str, "%s vmalloc", my_str);
+
+	if (v->flags & VM_MAP)
+		sprintf(my_str, "%s vmap", my_str);
+
+	if (v->flags & VM_USERMAP)
+		sprintf(my_str, "%s user", my_str);
+
+	if (v->flags & VM_DVR)
+		sprintf(my_str, "%s DVR", my_str);
+
+//	show_numa_info(m, v);
+	sprintf(my_str, "%s\n", my_str);
+
+	pr_err("%s", my_str);
+	return 0;
+}
+
+void dump_vmallocinfo(void)
+{
+    void *p;
+    int err = 0;
+
+    p = my_start();
+    while (1) {
+        err = PTR_ERR(p);
+        if (!p || IS_ERR(p))
+            break;
+        err = my_show(p);
+        if (err < 0)
+            break;
+
+        p = my_next(p);
+        if (!p || IS_ERR(p))
+            break;
+
+        continue;
+    }
+    my_stop(p);
 }
 
 static const struct seq_operations vmalloc_op = {

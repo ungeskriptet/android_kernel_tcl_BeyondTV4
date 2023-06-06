@@ -205,6 +205,17 @@ struct usb_hcd {
 #define	HC_IS_RUNNING(state) ((state) & __ACTIVE)
 #define	HC_IS_SUSPENDED(state) ((state) & __SUSPEND)
 
+#if 1 /* This part is added by RTK, not linux upstream code */
+	/* For KINGMAX storage device
+	 * or some device that are out of spec,
+	 * and need us to adjust DSM */
+	void (*down_shift_DSM)(struct usb_device *udev);
+
+	/* for port test mode used (rtk-hack) */
+	int (*port_test_mode)(struct usb_device *udev, int port1, int mode);
+	struct usb_device *udev_in_test;
+#endif
+
 	/* more shared queuing code would be good; it should support
 	 * smarter scheduling, handle transaction translators, etc;
 	 * input size of periodic table to an interrupt scheduler.
@@ -398,7 +409,10 @@ struct hc_driver {
 	int	(*find_raw_port_number)(struct usb_hcd *, int);
 	/* Call for power on/off the port if necessary */
 	int	(*port_power)(struct usb_hcd *hcd, int portnum, bool enable);
-
+	/* Call for auto tune phy to ehance HC compatibility */
+	int (*auto_tune_phy)(struct usb_hcd *hcd, int port1);
+	/* Call for mapping peer port of U2 & U3 */
+	unsigned int (*get_peer_port_location)(struct usb_hcd *hcd, int port1);
 };
 
 static inline int hcd_giveback_urb_in_bh(struct usb_hcd *hcd)

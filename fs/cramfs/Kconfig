@@ -20,3 +20,14 @@ config CRAMFS
 	  in terms of performance and features.
 
 	  If unsure, say N.
+
+
+config CRAMFS_TV043
+	bool "CramFs ROKU support"
+	depends on CRAMFS
+	help
+	  Saying Y here includes support for uid/gic attributes and
+	  handle files larger than 64 MB.
+
+	  If unsure, say N.
+

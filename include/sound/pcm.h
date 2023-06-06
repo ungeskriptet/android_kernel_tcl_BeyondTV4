@@ -371,6 +371,7 @@ struct snd_pcm_runtime {
 	unsigned int rate_num;
 	unsigned int rate_den;
 	unsigned int no_period_wakeup: 1;
+    unsigned char path_src[64]; /* rtk add for aio config src */
 
 	/* -- SW params -- */
 	int tstamp_mode;		/* mmap timestamp is updated */

@@ -17,6 +17,11 @@
 
 #include "reboot.h"
 
+//#ifdef CONFIG_SUPPORT_SCALER
+#include "rtk_kdriver/tvscalercontrol/panel/panelapi.h"
+//#endif
+
+
 typedef void (*phys_reset_t)(unsigned long, bool);
 
 /*
@@ -126,6 +131,7 @@ void machine_power_off(void)
 		pm_power_off();
 }
 
+
 #ifdef CONFIG_ARM_FLUSH_CONSOLE_ON_RESTART
 void arm_machine_flush_console(void)
 {
@@ -151,6 +157,8 @@ void arm_machine_flush_console(void)
 }
 #endif
 
+asmlinkage long sys_sync(void);
+
 /*
  * Restart requires that the secondary CPUs stop performing any activity
  * while the primary CPU resets the system. Systems with a single CPU can
@@ -164,6 +172,31 @@ void arm_machine_flush_console(void)
  */
 void machine_restart(char *cmd)
 {
+	if (reboot_perm == 0) {
+		printk(KERN_ERR "MAYDAY! MAYDAY! machine_restart from %pF (%d, %pT)... \n",
+		       __builtin_return_address(0),
+		       task_pid_nr(current), current);
+
+#ifdef CONFIG_RTK_KDRV_WATCHDOG
+		{
+			extern int watchdog_enable (unsigned char On);
+			extern int kill_watchdog (void);
+			
+			kill_watchdog ();
+			watchdog_enable(0);
+		}
+#endif
+		/* sync fs and IO, to save log completely */
+		sys_sync();
+
+		return;
+	}
+
+#ifdef CONFIG_SUPPORT_SCALER
+    Panel_SetMCUMode(0);
+    mdelay(300);
+	Panel_SetBackLightMode(0);
+#endif
 	local_irq_disable();
 	smp_send_stop();
 

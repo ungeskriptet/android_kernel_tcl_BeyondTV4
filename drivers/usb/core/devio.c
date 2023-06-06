@@ -54,6 +54,7 @@
 #include <linux/dma-mapping.h>
 #include <asm/byteorder.h>
 #include <linux/moduleparam.h>
+#include <linux/freezer.h>
 
 #include "usb.h"
 
@@ -1020,7 +1021,17 @@ static int usbdev_open(struct inode *inode, struct file *file)
 	if (!dev)
 		goto out_free_ps;
 
+#if defined(CONFIG_ARCH_RTK285O) && defined(CONFIG_CUSTOMER_TV030)
+	/* TCL2851-2979 */
+	set_freezable();
+	for (;;) {
+		if (usb_trylock_device(dev))
+			break;
+		try_to_freeze();
+	}
+#else
 	usb_lock_device(dev);
+#endif
 	if (dev->state == USB_STATE_NOTATTACHED)
 		goto out_unlock_device;
 

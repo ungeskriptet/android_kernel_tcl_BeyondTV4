@@ -1059,3 +1059,13 @@ static int __init debugfs_mips(void)
 }
 arch_initcall(debugfs_mips);
 #endif
+
+int plat_qemu;
+
+static int __init setup_qemu(char *p)
+{
+	plat_qemu = 1;
+
+	return 1;
+}
+__setup("qemu", setup_qemu);

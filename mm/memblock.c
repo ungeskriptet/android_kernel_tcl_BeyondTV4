@@ -20,6 +20,7 @@
 #include <linux/seq_file.h>
 #include <linux/memblock.h>
 
+#include <asm/setup.h>
 #include <asm/sections.h>
 #include <linux/io.h>
 
@@ -192,8 +193,7 @@ phys_addr_t __init_memblock memblock_find_in_range_node(phys_addr_t size,
 	phys_addr_t kernel_end, ret;
 
 	/* pump up @end */
-	if (end == MEMBLOCK_ALLOC_ACCESSIBLE ||
-	    end == MEMBLOCK_ALLOC_KASAN)
+	if (end == MEMBLOCK_ALLOC_ACCESSIBLE)
 		end = memblock.current_limit;
 
 	/* avoid allocating the first page */
@@ -597,11 +597,41 @@ int __init_memblock memblock_add_node(phys_addr_t base, phys_addr_t size,
 int __init_memblock memblock_add(phys_addr_t base, phys_addr_t size)
 {
 	phys_addr_t end = base + size - 1;
+    struct membank *bank = &meminfo.bank[meminfo.nr_banks];
+    int ret = 0;
 
 	memblock_dbg("memblock_add: [%pa-%pa] %pF\n",
 		     &base, &end, (void *)_RET_IP_);
+#ifdef CONFIG_KASAN
+    if(base == 0x0) {
+        size = 0x40000000;
+    }
+    if(base == 0x20000000) {
+        base = 0x40000000;
+        size = 0x40000000;
+    }
+#elif defined(CONFIG_ENLARGE_LOWMEM)
+    if (base == 0x0) {
+	size = CONFIG_ENLARGED_LOWMEM_SIZE;  /* TODO: need to prevent if size < 768 MB */
+	pr_err("size = %d\n",size);
+	pr_err("CONFIG_ENLARGED_LOWMEM_SIZE = %d\n",CONFIG_ENLARGED_LOWMEM_SIZE);
+    }
+    if (base == DEFAULT_LOWMEM_SIZE) {
+        base = CONFIG_ENLARGED_LOWMEM_SIZE;
+	size = size - (CONFIG_ENLARGED_LOWMEM_SIZE - DEFAULT_LOWMEM_SIZE);
+    }
+#endif
+    pr_info("mem=%lldMB@0x%08llx\n", (long long)(size / 1024 / 1024), (long long)base); // RTK_patch: print memory info
 
-	return memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0);
+	ret = memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0);
+
+    if (!ret) {
+        bank->start = base;
+        bank->size = size;
+        bank->highmem = 0;
+        meminfo.nr_banks++;
+    }
+    return ret;
 }
 
 /**
@@ -718,7 +748,8 @@ int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 
 	memblock_dbg("memblock_reserve: [%pa-%pa] %pF\n",
 		     &base, &end, (void *)_RET_IP_);
-
+	if((base <= __pa(_end)) && (__pa(_end) < (base + size)))
+		pr_emerg("[MEM][EMERG!!!]memblock_reserve base %x conflict _end %x!!\n", base,__pa(_end));
 	return memblock_add_range(&memblock.reserved, base, size, MAX_NUMNODES, 0);
 }
 
@@ -1302,15 +1333,13 @@ done:
 	ptr = phys_to_virt(alloc);
 	memset(ptr, 0, size);
 
-	/* Skip kmemleak for kasan_init() due to high volume. */
-	if (max_addr != MEMBLOCK_ALLOC_KASAN)
-		/*
-		 * The min_count is set to 0 so that bootmem allocated
-		 * blocks are never reported as leaks. This is because many
-		 * of these blocks are only referred via the physical
-		 * address which is not looked up by kmemleak.
-		 */
-		kmemleak_alloc(ptr, size, 0, 0);
+	/*
+	 * The min_count is set to 0 so that bootmem allocated blocks
+	 * are never reported as leaks. This is because many of these blocks
+	 * are only referred via the physical address which is not
+	 * looked up by kmemleak.
+	 */
+	kmemleak_alloc(ptr, size, 0, 0);
 
 	return ptr;
 }

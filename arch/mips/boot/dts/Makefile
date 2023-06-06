@@ -11,6 +11,9 @@ dts-dirs	+= pic32
 dts-dirs	+= qca
 dts-dirs	+= ralink
 dts-dirs	+= xilfpga
+ifneq ($(wildcard formosa/bsp/dts/Makefile),)
+dts-dirs	+= ../../bsp/dts
+endif
 
 obj-y		:= $(addsuffix /, $(dts-dirs))
 

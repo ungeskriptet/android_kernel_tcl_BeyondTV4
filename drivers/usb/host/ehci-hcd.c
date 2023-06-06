@@ -454,8 +454,10 @@ static void ehci_stop (struct usb_hcd *hcd)
 	spin_unlock_irq (&ehci->lock);
 	ehci_mem_cleanup (ehci);
 
+#ifdef CONFIG_USB_EHCI_PCI
 	if (ehci->amd_pll_fix == 1)
 		usb_amd_dev_put();
+#endif
 
 	dbg_status (ehci, "ehci_stop completed",
 		    ehci_readl(ehci, &ehci->regs->status));

@@ -97,8 +97,6 @@ config MANDATORY_FILE_LOCKING
 
 source "fs/crypto/Kconfig"
 
-source "fs/verity/Kconfig"
-
 source "fs/notify/Kconfig"
 
 source "fs/quota/Kconfig"
@@ -106,7 +104,6 @@ source "fs/quota/Kconfig"
 source "fs/autofs4/Kconfig"
 source "fs/fuse/Kconfig"
 source "fs/overlayfs/Kconfig"
-source "fs/incfs/Kconfig"
 
 menu "Caches"
 
@@ -236,6 +233,7 @@ source "fs/hfsplus/Kconfig"
 source "fs/befs/Kconfig"
 source "fs/bfs/Kconfig"
 source "fs/efs/Kconfig"
+source "fs/yaffs2/Kconfig"
 source "fs/jffs2/Kconfig"
 # UBIFS File system configuration
 source "fs/ubifs/Kconfig"
@@ -311,6 +309,5 @@ endif # NETWORK_FILESYSTEMS
 
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
-source "fs/unicode/Kconfig"
 
 endmenu

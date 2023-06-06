@@ -13,7 +13,9 @@
 
 #include <linux/cpufreq.h>
 #include <linux/module.h>
-
+#ifdef CONFIG_RTK_KDRV_CPU_FREQUENCY
+extern unsigned int rtk_get_boot_freq(void);
+#endif
 /*********************************************************************
  *                     FREQUENCY TABLE HELPERS                       *
  *********************************************************************/
@@ -37,6 +39,7 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
 				    struct cpufreq_frequency_table *table)
 {
 	struct cpufreq_frequency_table *pos;
+	static int init_max=1;
 	unsigned int min_freq = ~0;
 	unsigned int max_freq = 0;
 	unsigned int freq;
@@ -55,8 +58,22 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
 			max_freq = freq;
 	}
 
-	policy->min = policy->cpuinfo.min_freq = min_freq;
-	policy->max = policy->cpuinfo.max_freq = max_freq;
+        policy->min = policy->cpuinfo.min_freq = min_freq;
+//      policy->max = policy->cpuinfo.max_freq = max_freq;
+        policy->cpuinfo.max_freq = max_freq;
+
+        if(init_max){
+#ifdef CONFIG_RTK_KDRV_CPU_FREQUENCY
+                policy->max=rtk_get_boot_freq();
+#else
+		policy->max = max_freq;
+#endif
+                init_max=0;
+        }
+#if CONFIG_ARCH_RTK285O //override min freq only for 285O
+        policy->max = max_freq;
+	policy->min = 800000;
+#endif
 
 	if (policy->min == ~0)
 		return -EINVAL;

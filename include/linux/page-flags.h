@@ -107,6 +107,9 @@ enum pageflags {
 	PG_young,
 	PG_idle,
 #endif
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+	PG_rtkcache,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -375,6 +378,10 @@ TESTPAGEFLAG(Young, young, PF_ANY)
 SETPAGEFLAG(Young, young, PF_ANY)
 TESTCLEARFLAG(Young, young, PF_ANY)
 PAGEFLAG(Idle, idle, PF_ANY)
+#endif
+
+#ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+PAGEFLAG(RTKCache, rtkcache, PF_ANY)
 #endif
 
 /*

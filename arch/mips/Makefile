@@ -7,6 +7,9 @@
 # DECStation modifications by Paul M. Antoine, 1996
 # Copyright (C) 2002, 2003, 2004  Maciej W. Rozycki
 #
+# Modified for RLX Linux for MIPS
+# Copyright (C) 2008-2011 Tony Wu (tonywu@realtek.com)
+#
 # This file is included by the global makefile so that you can add your own
 # architecture-specific flags and dependencies. Remember to do have actions
 # for "archclean" cleaning up for this architecture.
@@ -15,14 +18,14 @@
 archscripts: scripts_basic
 	$(Q)$(MAKE) $(build)=arch/mips/boot/tools relocs
 
-KBUILD_DEFCONFIG := ip22_defconfig
+KBUILD_DEFCONFIG := mips_defconfig
 
 #
 # Select the object file format to substitute into the linker script.
 #
 ifdef CONFIG_CPU_LITTLE_ENDIAN
-32bit-tool-archpref	= mipsel
-64bit-tool-archpref	= mips64el
+32bit-tool-archpref	= mips
+64bit-tool-archpref	= mips64
 32bit-bfd		= elf32-tradlittlemips
 64bit-bfd		= elf64-tradlittlemips
 32bit-emul		= elf32ltsmip
@@ -126,8 +129,8 @@ undef-all += -UMIPSEB -U_MIPSEB -U__MIPSEB -U__MIPSEB__
 undef-all += -UMIPSEL -U_MIPSEL -U__MIPSEL -U__MIPSEL__
 predef-be += -DMIPSEB -D_MIPSEB -D__MIPSEB -D__MIPSEB__
 predef-le += -DMIPSEL -D_MIPSEL -D__MIPSEL -D__MIPSEL__
-cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= $(shell $(CC) -dumpmachine |grep -q 'mips.*el-.*' && echo -EB $(undef-all) $(predef-be))
-cflags-$(CONFIG_CPU_LITTLE_ENDIAN)	+= $(shell $(CC) -dumpmachine |grep -q 'mips.*el-.*' || echo -EL $(undef-all) $(predef-le))
+cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= -EB $(undef-all) $(predef-be)
+cflags-$(CONFIG_CPU_LITTLE_ENDIAN)	+= -EL $(undef-all) $(predef-le)
 
 cflags-$(CONFIG_SB1XXX_CORELIS)	+= $(call cc-option,-mno-sched-prolog) \
 				   -fno-omit-frame-pointer
@@ -233,14 +236,18 @@ endif
 #
 # Board-dependent options and extra files
 #
-include arch/mips/Kbuild.platforms
+#include arch/mips/Kbuild.platforms
+
+ifeq ($(CONFIG_SHEIPA),y)
+include arch/mips/bsp/Makefile
+endif
 
 ifdef CONFIG_PHYSICAL_START
 load-y					= $(CONFIG_PHYSICAL_START)
 endif
 
-entry-noisa-y				= 0x$(shell $(NM) vmlinux 2>/dev/null \
-					| grep "\bkernel_entry\b" | cut -f1 -d \ )
+entry-noisa-y				= $(shell $(CROSS_COMPILE)readelf -h vmlinux | \
+					grep "Entry point address" | grep -o 0x.*)
 ifdef CONFIG_CPU_MICROMIPS
   #
   # Set the ISA bit, since the kernel_entry symbol in the ELF will have it
@@ -326,7 +333,7 @@ OBJCOPYFLAGS		+= --remove-section=.reginfo
 head-y := arch/mips/kernel/head.o
 
 libs-y			+= arch/mips/lib/
-libs-y			+= arch/mips/math-emu/
+libs-$(CONFIG_CPU_HAS_EMU)	+= arch/mips/math-emu/
 
 # See arch/mips/Kbuild for content of core part of the kernel
 core-y += arch/mips/
@@ -340,14 +347,12 @@ drivers-$(CONFIG_PM)	+= arch/mips/power/
 boot-y			:= vmlinux.bin
 boot-y			+= vmlinux.ecoff
 boot-y			+= vmlinux.srec
-ifeq ($(shell expr $(load-y) \< 0xffffffff80000000 2> /dev/null), 0)
 boot-y			+= uImage
 boot-y			+= uImage.bin
 boot-y			+= uImage.bz2
 boot-y			+= uImage.gz
 boot-y			+= uImage.lzma
 boot-y			+= uImage.lzo
-endif
 boot-y			+= vmlinux.itb
 boot-y			+= vmlinux.gz.itb
 boot-y			+= vmlinux.bz2.itb

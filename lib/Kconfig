@@ -564,6 +564,11 @@ config SG_POOL
 #
 # sg chaining option
 #
+config RTK_HOT_PLUG_SUPPORT
+	bool "Add support for usb hotplug"
+	default n
+	help
+	  Add support for usb hotplug.
 
 config ARCH_HAS_SG_CHAIN
 	def_bool n

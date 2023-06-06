@@ -3,6 +3,14 @@
 # Makefile for the linux memory manager.
 #
 
+ifdef CONFIG_RTK_KDRIVER_SUPPORT
+KBUILD_CPPFLAGS += -Idrivers/rtk_kdriver/include
+KBUILD_CPPFLAGS += -Idrivers/rtk_kdriver/include/rtk_kdriver
+KBUILD_CPPFLAGS += -Idrivers/rtk_kdriver/common/include/
+KBUILD_CPPFLAGS += -I drivers/rtk_kdriver/common/IPC/generate/include/system
+KBUILD_CPPFLAGS += -I drivers/rtk_kdriver/common/IPC/include
+endif
+
 KASAN_SANITIZE_slab_common.o := n
 KASAN_SANITIZE_slab.o := n
 KASAN_SANITIZE_slub.o := n
@@ -94,6 +102,9 @@ obj-$(CONFIG_ZSMALLOC)	+= zsmalloc.o
 obj-$(CONFIG_Z3FOLD)	+= z3fold.o
 obj-$(CONFIG_GENERIC_EARLY_IOREMAP) += early_ioremap.o
 obj-$(CONFIG_CMA)	+= cma.o
+ifdef CONFIG_REALTEK_MEMORY_MANAGEMENT
+obj-$(CONFIG_CMA)       += auth.o tlbmap.o pageremap.o rtkblueprint.o rtkrecord.o
+endif
 obj-$(CONFIG_MEMORY_BALLOON) += balloon_compaction.o
 obj-$(CONFIG_PAGE_EXTENSION) += page_ext.o
 obj-$(CONFIG_CMA_DEBUGFS) += cma_debug.o

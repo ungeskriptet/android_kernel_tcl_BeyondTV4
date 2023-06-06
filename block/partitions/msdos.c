@@ -537,6 +537,10 @@ int msdos_partition(struct parsed_partitions *state)
 		if (!size)
 			continue;
 		if (is_extended_partition(p)) {
+
+#ifdef CONFIG_RTK_HOT_PLUG_SUPPORT
+			state->parts[slot].is_part_extended = 1;
+#endif
 			/*
 			 * prevent someone doing mkfs or mkswap on an
 			 * extended partition, but leave room for LILO

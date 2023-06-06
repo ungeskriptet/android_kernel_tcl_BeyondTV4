@@ -1,4 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0
+# Realtek Semiconductor Corp.
+#
+# RLX Linux Kernel Configuration
+#
+# Tony Wu (tonywu@realtek.com)
+# Dec. 07, 2008
+#
+
 config ARM
 	bool
 	default y
@@ -100,6 +108,7 @@ config ARM
 	select PERF_USE_VMALLOC
 	select RTC_LIB
 	select SYS_SUPPORTS_APM_EMULATION
+	select HAVE_ARCH_KASAN
 	# Above selects are sorted alphabetically; please add new ones
 	# according to that.  Thanks.
 	help
@@ -282,6 +291,7 @@ config NEED_MACH_MEMORY_H
 config PHYS_OFFSET
 	hex "Physical address of main memory" if MMU
 	depends on !ARM_PATCH_PHYS_VIRT
+	default 0x0 if MMU
 	default DRAM_BASE if !MMU
 	default 0x00000000 if ARCH_EBSA110 || \
 			ARCH_FOOTBRIDGE || \
@@ -333,7 +343,16 @@ config ARCH_MMAP_RND_BITS_MAX
 choice
 	prompt "ARM system type"
 	default ARM_SINGLE_ARMV7M if !MMU
-	default ARCH_MULTIPLATFORM if MMU
+	default ARCH_SHEIPA if MMU
+
+config ARCH_SHEIPA
+	bool "Realtek ARM platform"
+	depends on MMU
+	select COMMON_CLK
+	select CLKDEV_LOOKUP
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select USE_OF
 
 config ARCH_MULTIPLATFORM
 	bool "Allow multiple platforms to be selected"
@@ -643,6 +662,112 @@ config ARCH_OMAP1
 	help
 	  Support for older TI OMAP1 (omap7xx, omap15xx or omap16xx)
 
+# RTK_patch: add our machine configs
+config ARCH_RTK285X
+	bool "Realtek 285x boards"
+	select SYS_HAS_EARLY_PRINTK
+	select CPU_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select CPU_V7
+	select ARM_GIC_V3
+	select GENERIC_CLOCKEVENTS
+	select NEED_MACH_IO_H
+	select HAVE_SMP
+	select HAVE_ARM_SCU
+	select COMMON_CLK if SMP
+	select IO_36
+	select ARCH_HAS_OPP if REALTEK_OF
+	select PM_OPP if REALTEK_OF
+	select HAVE_CLK if REALTEK_OF
+	select COMMON_CLK if REALTEK_OF
+	select RTK_KDRIVER_SUPPORT
+	help
+	  This enables support for the Realtek 285x based boards.
+
+config ARCH_RTK285O
+        bool "Realtek 285o boards"
+        select SYS_HAS_EARLY_PRINTK
+        select CPU_SUPPORTS_32BIT_KERNEL
+        select SYS_SUPPORTS_32BIT_KERNEL
+        select CPU_V7
+        select ARM_GIC_V3
+        select GENERIC_CLOCKEVENTS
+        select NEED_MACH_IO_H
+        select HAVE_SMP
+        select HAVE_ARM_SCU
+        select COMMON_CLK if SMP
+        select IO_36
+        select ARCH_HAS_OPP if REALTEK_OF
+        select PM_OPP if REALTEK_OF
+        select HAVE_CLK if REALTEK_OF
+        select COMMON_CLK if REALTEK_OF
+        select RTK_KDRIVER_SUPPORT
+        help
+          This enables support for the Realtek 285o based boards.
+
+config ARCH_RTK287X
+	bool "Realtek 287x boards"
+	select SYS_HAS_EARLY_PRINTK
+	select CPU_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select CPU_V7
+	select ARM_GIC
+	select GENERIC_CLOCKEVENTS
+	select NEED_MACH_IO_H
+	select HAVE_SMP
+	select HAVE_ARM_SCU
+	select COMMON_CLK if SMP
+	select IO_36
+	select ARCH_HAS_OPP if REALTEK_OF
+	select PM_OPP if REALTEK_OF
+	select HAVE_CLK if REALTEK_OF
+	select COMMON_CLK if REALTEK_OF
+	select RTK_KDRIVER_SUPPORT
+	help
+	  This enables support for the Realtek 287x based boards.
+
+config ARCH_RTK287O
+	bool "Realtek 287o boards"
+	select SYS_HAS_EARLY_PRINTK
+	select CPU_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select CPU_V7
+	select ARM_GIC_V3
+	select GENERIC_CLOCKEVENTS
+	select NEED_MACH_IO_H
+	select HAVE_SMP
+	select HAVE_ARM_SCU
+	select COMMON_CLK if SMP
+	select IO_36
+	select ARCH_HAS_OPP if REALTEK_OF
+	select PM_OPP if REALTEK_OF
+	select HAVE_CLK if REALTEK_OF
+	select COMMON_CLK if REALTEK_OF
+	select RTK_KDRIVER_SUPPORT
+	help
+	  This enables support for the Realtek 287o based boards.
+
+
+config ARCH_RTK288O
+	bool "Realtek 288o boards"
+	select SYS_HAS_EARLY_PRINTK
+	select CPU_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select CPU_V7
+	select ARM_GIC_V3
+	select GENERIC_CLOCKEVENTS
+	select NEED_MACH_IO_H
+	select HAVE_SMP
+	select HAVE_ARM_SCU
+	select COMMON_CLK if SMP
+	select IO_36
+	select ARCH_HAS_OPP if REALTEK_OF
+	select PM_OPP if REALTEK_OF
+	select HAVE_CLK if REALTEK_OF
+	select COMMON_CLK if REALTEK_OF
+	select RTK_KDRIVER_SUPPORT
+	help
+	  This enables support for the Realtek 288o based boards.
 endchoice
 
 menu "Multiple platform selection"
@@ -856,6 +981,51 @@ source "arch/arm/mach-zx/Kconfig"
 
 source "arch/arm/mach-zynq/Kconfig"
 
+
+# RTK_patch: add our machine's Kconfig
+source "arch/arm/mach-rtd285x/Kconfig"
+source "arch/arm/mach-rtd287x/Kconfig"
+source "arch/arm/mach-rtd285o/Kconfig"
+source "arch/arm/mach-rtd287o/Kconfig"
+source "arch/arm/mach-rtd288o/Kconfig"
+
+menu "Customer"
+choice
+	prompt "Customer Build"
+	default CUSTOMER_TV001
+
+config CUSTOMER_TV001
+	bool "tv001"
+	help
+	  build for tv001.
+
+config CUSTOMER_TV002
+        bool "tv002"
+        help
+          build for tv002.
+          
+config CUSTOMER_TV006
+	bool "tv006"
+	help
+	  build for tv006.
+
+config CUSTOMER_TV010
+	bool "tv010"
+	help
+	  build for tv010.
+config CUSTOMER_TV030
+	bool "tv030"
+	help
+	  build for tv030.
+endchoice
+
+config OSD_VALUE_NO_NEED_MAP_RANGE
+    bool "osd value no need map"
+    depends on CUSTOMER_TV030
+    default n
+    help
+      add config for tv030 svn flow cause DB504 don't use fpp.
+endmenu
 # ARMv7-M architecture
 config ARCH_EFM32
 	bool "Energy Micro efm32"
@@ -1241,7 +1411,8 @@ config ISA_DMA_API
 	bool
 
 config PCI
-	bool "PCI support" if MIGHT_HAVE_PCI
+	bool "PCI support"
+	depends on HW_HAS_PCI
 	help
 	  Find out whether you have a PCI motherboard. PCI is the name of a
 	  bus system, i.e. the way the CPU talks to the other stuff inside
@@ -1361,9 +1532,18 @@ config HAVE_ARM_ARCH_TIMER
 	help
 	  This option enables support for the ARM architected timer
 
+config HAVE_ARM_GLOBAL_TIMER
+	bool "Global timer support"
+	depends on CPU_V7
+	select ARM_GLOBAL_TIMER
+	select GENERIC_CLOCKEVENTS
+	help
+	  This option enables support for the ARM global timer
+
 config HAVE_ARM_TWD
 	bool
-	select TIMER_OF if OF
+	select CLKSRC_OF if OF
+	depends on SMP
 	help
 	  This options enables support for the ARM timer and watchdog unit
 
@@ -1437,6 +1617,13 @@ config PAGE_OFFSET
 	default 0x80000000 if VMSPLIT_2G
 	default 0xB0000000 if VMSPLIT_3G_OPT
 	default 0xC0000000
+
+config KASAN_SHADOW_OFFSET
+	hex
+	default 0x1f000000 if VMSPLIT_1G
+	default 0x5f000000 if VMSPLIT_2G
+	default 0x8f000000 if VMSPLIT_3G_OPT
+	default 0xa1600000
 
 config NR_CPUS
 	int "Maximum number of CPUs (2-32)"
@@ -1590,8 +1777,8 @@ config ARM_PATCH_IDIV
 	  code to do integer division.
 
 config AEABI
-	bool "Use the ARM EABI to compile the kernel" if !CPU_V7 && !CPU_V7M && !CPU_V6 && !CPU_V6K
-	default CPU_V7 || CPU_V7M || CPU_V6 || CPU_V6K
+	bool "Use the ARM EABI to compile the kernel"
+	default y
 	help
 	  This option allows for the kernel to be compiled using the latest
 	  ARM ABI (aka EABI).  This is only useful if you are using a user
@@ -1608,6 +1795,7 @@ config AEABI
 config OABI_COMPAT
 	bool "Allow old ABI binaries to run with this kernel (EXPERIMENTAL)"
 	depends on AEABI && !THUMB2_KERNEL
+	default n
 	help
 	  This option preserves the old syscall interface along with the
 	  new (ARM EABI) one. It also provides a compatibility layer to
@@ -1672,6 +1860,39 @@ config HIGHPTE
 	  precious low memory, eventually leading to low memory being
 	  consumed by page tables.  Setting this option will allow
 	  user-space 2nd level page tables to reside in high memory.
+
+config ENLARGE_LOWMEM
+        bool "Enlarge lowmem size"
+        depends on HIGHMEM
+        default n
+        help
+          Enlarge lowmem size from default 512 MB to maximum 768 MB,
+          to make vmalloc size at least not smaller than default 240 MB
+
+config ENLARGED_LOWMEM_SIZE
+        hex "Enlarged lowmem size 0x20000000(512 MB) - 0x30000000(768 MB)"
+        range 0x20000000 0x30000000
+        depends on ENLARGE_LOWMEM
+        default "0x28000000"
+
+config ZONE_ZRAM
+        bool "Reserve a specific memory zone for ZRAM usage"
+        depends on HIGHMEM
+        default n
+        help
+          If there is poor bandwidth memory region, we would like to
+          allocate ZRAM pages in that memory region and avoid other
+          pages to be allocated in that memory region.
+          So we create a new memory zone to achieve this.
+
+config ZONE_ZRAM_DISABLE_FALLBACK
+        bool "Only allow zRAM to use zone ZRAM"
+        depends on ZONE_ZRAM
+        default n
+        help
+          Only zRAM usage is allowed to use zone ZRAM.
+          Say y if only zRAM can be allocated into zone ZRAM.
+          Say n if others can be allocated into zone ZRAM to avoid OOM.
 
 config CPU_SW_DOMAIN_PAN
 	bool "Enable use of CPU domains to implement privileged no-access"
@@ -1873,6 +2094,34 @@ config BUILD_ARM_APPENDED_DTB_IMAGE_NAMES
 	help
 	  Space separated list of names of dtbs to append when
 	  building a concatenated zImage-dtb.
+
+# RTK_patch: add configs for our dtb patch
+config BUILD_ARM_APPENDED_DTB_IMAGE_EXT
+        bool "Build a concatenated vmlinux.bin/dtb by default"
+        depends on OF
+        help
+          Enabling this option will cause a concatenated vmlinux.bin and list of
+          DTBs to be built by default (instead of a standalone vmlinux.bin.)
+
+config BUILD_ARM_APPENDED_DTB_IMAGE_NAMES_EXT
+        string "Default dtb names"
+        depends on BUILD_ARM_APPENDED_DTB_IMAGE_EXT
+        help
+          Space separated list of names of dtbs to append when
+          building a concatenated vmlinux.bin-dtb.
+
+config ARM_ATAG_DTB_COMPAT_EXT
+        bool "Supplement the appended DTB with traditional ATAG information"
+        depends on BUILD_ARM_APPENDED_DTB_IMAGE_EXT
+        select LIBFDT
+        help
+          Some old bootloaders can't be updated to a DTB capable one, yet
+          they provide ATAGs with memory configuration, the ramdisk address,
+          the kernel cmdline string, etc.  Such information is dynamically
+          provided by the bootloader and can't always be stored in a static
+          DTB.  To allow a device tree enabled kernel to be used with such
+          bootloaders, this option allows zImage to extract the information
+          from the ATAG list and store it at run time into the appended DTB.
 
 # Compressed boot loader in ROM.  Yes, we really want to ask about
 # TEXT and BSS so we preserve their values in the config files.

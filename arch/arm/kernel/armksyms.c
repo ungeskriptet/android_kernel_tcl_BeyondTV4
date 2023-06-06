@@ -53,6 +53,7 @@ extern void fpundefinstr(void);
 
 void mmioset(void *, unsigned int, size_t);
 void mmiocpy(void *, const void *, size_t);
+void v7_dma_flush_range(void *start, void *end);
 
 	/* platform dependent support */
 EXPORT_SYMBOL(arm_delay_ops);
@@ -183,3 +184,12 @@ EXPORT_SYMBOL(__pv_offset);
 EXPORT_SYMBOL(__arm_smccc_smc);
 EXPORT_SYMBOL(__arm_smccc_hvc);
 #endif
+
+#ifdef CONFIG_KASAN
+EXPORT_SYMBOL(__memmove);
+EXPORT_SYMBOL(__memcpy);
+EXPORT_SYMBOL(__memset);
+#endif //#ifdef CONFIG_KASAN
+
+EXPORT_SYMBOL(v7_dma_flush_range);
+

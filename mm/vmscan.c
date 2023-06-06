@@ -150,7 +150,10 @@ struct scan_control {
 /*
  * From 0 .. 100.  Higher means more swappy.
  */
-int vm_swappiness = 60;
+// #ifdef VENDER_EDIT
+// yilan.guo@tcl.com 2020/9/25 modify for performance
+int vm_swappiness = 100;
+// #endif /* VENDER_EDIT */
 /*
  * The total number of pages which are beyond the high watermark within all
  * zones.
@@ -2066,7 +2069,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 		}
 
 		ClearPageActive(page);	/* we are de-activating */
-		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
 	}
 

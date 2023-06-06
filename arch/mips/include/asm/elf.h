@@ -14,6 +14,7 @@
 
 #include <uapi/linux/elf.h>
 
+#include <uapi/asm/auxvec.h>
 #include <asm/current.h>
 
 /* ELF header e_flags defines. */
@@ -490,12 +491,21 @@ struct arch_elf_state {
 
 #define MIPS_ABI_FP_UNKNOWN	(-1)	/* Unknown FP ABI (kernel internal) */
 
+#if defined(CONFIG_CPU_RLX)
+#define INIT_ARCH_ELF_STATE {			\
+	.nan_2008 = -1,				\
+	.fp_abi = MIPS_ABI_FP_64,		\
+	.interp_fp_abi = MIPS_ABI_FP_UNKNOWN,	\
+	.overall_fp_mode = -1,			\
+}
+#else
 #define INIT_ARCH_ELF_STATE {			\
 	.nan_2008 = -1,				\
 	.fp_abi = MIPS_ABI_FP_UNKNOWN,		\
 	.interp_fp_abi = MIPS_ABI_FP_UNKNOWN,	\
 	.overall_fp_mode = -1,			\
 }
+#endif
 
 /* Whether to accept legacy-NaN and 2008-NaN user binaries.  */
 extern bool mips_use_nan_legacy;

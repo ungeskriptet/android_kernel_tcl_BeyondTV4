@@ -42,8 +42,18 @@ struct vm_area_struct;
 #define ___GFP_KSWAPD_RECLAIM	0x1000000u
 #ifdef CONFIG_LOCKDEP
 #define ___GFP_NOLOCKDEP	0x2000000u
+#ifdef CONFIG_ZONE_ZRAM
+#define ___GFP_ZONE_ZRAM	0x4000000u
+#else
+#define ___GFP_ZONE_ZRAM	0
+#endif
 #else
 #define ___GFP_NOLOCKDEP	0
+#ifdef CONFIG_ZONE_ZRAM
+#define ___GFP_ZONE_ZRAM	0x2000000u
+#else
+#define ___GFP_ZONE_ZRAM	0
+#endif
 #endif
 /* If the above are modified, __GFP_BITS_SHIFT may need updating */
 
@@ -209,8 +219,11 @@ struct vm_area_struct;
 /* Disable lockdep for GFP context tracking */
 #define __GFP_NOLOCKDEP ((__force gfp_t)___GFP_NOLOCKDEP)
 
+/* Allocate pages in zone ZRAM */
+#define __GFP_ZONE_ZRAM ((__force gfp_t)___GFP_ZONE_ZRAM)
+
 /* Room for N __GFP_FOO bits */
-#define __GFP_BITS_SHIFT (25 + IS_ENABLED(CONFIG_LOCKDEP))
+#define __GFP_BITS_SHIFT (25 + IS_ENABLED(CONFIG_LOCKDEP) + IS_ENABLED(CONFIG_ZONE_ZRAM))
 #define __GFP_BITS_MASK ((__force gfp_t)((1 << __GFP_BITS_SHIFT) - 1))
 
 /*
@@ -303,7 +316,19 @@ static inline int gfpflags_to_migratetype(const gfp_t gfp_flags)
 		return MIGRATE_UNMOVABLE;
 
 	/* Group based on mobility */
+#ifdef CONFIG_CMA_FIRST_POLICY
+
+#if 0//def CONFIG_CMA_TRACK_USE_PAGE_OWNER
+	return ((((gfp_flags & __GFP_MOVABLE) != 0) || ((gfp_flags & __GFP_DMA_ALLOC_CONTIG) != 0))  << 2) |
+		((gfp_flags & __GFP_RECLAIMABLE) >> GFP_MOVABLE_SHIFT);
+#else
+	return (((gfp_flags & __GFP_MOVABLE) != 0) << 2) | 
+		((gfp_flags & __GFP_RECLAIMABLE) >> GFP_MOVABLE_SHIFT);
+#endif
+
+#else
 	return (gfp_flags & GFP_MOVABLE_MASK) >> GFP_MOVABLE_SHIFT;
+#endif
 }
 #undef GFP_MOVABLE_MASK
 #undef GFP_MOVABLE_SHIFT
@@ -434,6 +459,11 @@ static inline enum zone_type gfp_zone(gfp_t flags)
 	z = (GFP_ZONE_TABLE >> (bit * GFP_ZONES_SHIFT)) &
 					 ((1 << GFP_ZONES_SHIFT) - 1);
 	VM_BUG_ON((GFP_ZONE_BAD >> bit) & 1);
+#ifdef CONFIG_ZONE_ZRAM
+	if (flags & __GFP_ZONE_ZRAM) {
+		z = ZONE_ZRAM;
+	}
+#endif
 	return z;
 }
 

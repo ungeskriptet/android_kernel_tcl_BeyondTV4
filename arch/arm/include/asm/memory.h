@@ -37,8 +37,20 @@
  * TASK_SIZE - the maximum size of a user space task.
  * TASK_UNMAPPED_BASE - the lower boundary of the mmap VM area
  */
+#ifndef CONFIG_KASAN
 #define TASK_SIZE		(UL(CONFIG_PAGE_OFFSET) - UL(SZ_16M))
-#define TASK_UNMAPPED_BASE	ALIGN(TASK_SIZE / 3, SZ_16M)
+#else
+#define TASK_SIZE		(UL(CONFIG_PAGE_OFFSET) - UL(SZ_16M) - UL(0x8200000))
+#endif
+#ifdef CONFIG_VMSPLIT_3G_OPT
+#define TASK_UNMAPPED_BASE	(UL(0x40000000) + UL(0x01000000))  //DEF_MAP_ADDR + DEF_MAP_SIZE = rbus mapping start
+#else
+#ifndef CONFIG_KASAN
+#define TASK_UNMAPPED_BASE     (ALIGN(TASK_SIZE / 3, SZ_16M) + UL(0x01000000))
+#else
+#define TASK_UNMAPPED_BASE      (ALIGN((UL(CONFIG_PAGE_OFFSET) - UL(SZ_16M)) / 3, SZ_16M) + UL(0x01000000))
+#endif
+#endif
 
 /*
  * The maximum size of a 26-bit user space task.
@@ -50,7 +62,11 @@
  * and PAGE_OFFSET - it must be within 32MB of the kernel text.
  */
 #ifndef CONFIG_THUMB2_KERNEL
+#ifndef CONFIG_KASAN
 #define MODULES_VADDR		(PAGE_OFFSET - SZ_16M)
+#else
+#define MODULES_VADDR           (PAGE_OFFSET - 0xA00000)
+#endif /*CONFIG_KASAN*/
 #else
 /* smaller range for Thumb-2 symbols relocation (2^24)*/
 #define MODULES_VADDR		(PAGE_OFFSET - SZ_8M)

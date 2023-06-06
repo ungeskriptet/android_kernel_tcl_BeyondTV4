@@ -12,11 +12,25 @@
  * Primarily used to generate warnings in mkcramfs.
  */
 #define CRAMFS_MODE_WIDTH 16
+#ifndef CONFIG_CRAMFS_TV043
 #define CRAMFS_UID_WIDTH 16
+#else
+#define CRAMFS_UID_WIDTH 32
+#endif
+
+#ifdef CONFIG_CRAMFS_TV043
+#define CRAMFS_SIZE_WIDTH 32
+#define CRAMFS_GID_WIDTH 32
+
+#define CRAMFS_NAMELEN_WIDTH 8
+#define CRAMFS_OFFSET_WIDTH 30
+#else
 #define CRAMFS_SIZE_WIDTH 24
 #define CRAMFS_GID_WIDTH 8
 #define CRAMFS_NAMELEN_WIDTH 6
 #define CRAMFS_OFFSET_WIDTH 26
+
+#endif
 
 /*
  * Since inode.namelen is a unsigned 6-bit number, the maximum cramfs
@@ -27,6 +41,24 @@
 /*
  * Reasonably terse representation of the inode data.
  */
+#ifdef CONFIG_CRAMFS_TV043
+struct cramfs_inode {
+	__u32 mode:CRAMFS_MODE_WIDTH, namelen:CRAMFS_NAMELEN_WIDTH;
+	/* SIZE for device files is i_rdev */
+	/* NAMELEN is the length of the file name, divided by 4 and
+           rounded up.  (cramfs doesn't support hard links.) */
+           __u32 size /* :CRAMFS_SIZE_WIDTH */ ;
+	/* OFFSET: For symlinks and non-empty regular files, this
+	   contains the offset (divided by 4) of the file data in
+	   compressed form (starting with an array of block pointers;
+	   see README).  For non-empty directories it is the offset
+	   (divided by 4) of the inode of the first file in that
+	   directory.  For anything else, offset is zero. */
+	   __u32 offset /* :CRAMFS_OFFSET_WIDTH */ ;
+                __u32 uid;
+                __u32 gid;
+};
+#else
 struct cramfs_inode {
 	__u32 mode:CRAMFS_MODE_WIDTH, uid:CRAMFS_UID_WIDTH;
 	/* SIZE for device files is i_rdev */
@@ -41,6 +73,7 @@ struct cramfs_inode {
 	   directory.  For anything else, offset is zero. */
 	__u32 namelen:CRAMFS_NAMELEN_WIDTH, offset:CRAMFS_OFFSET_WIDTH;
 };
+#endif
 
 struct cramfs_info {
 	__u32 crc;

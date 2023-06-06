@@ -181,6 +181,11 @@ choice
 		  mobile SoCs in the Kona family of chips (e.g. bcm28155,
 		  bcm11351, etc...)
 
+	config DEBUG_SHEIPA_UART
+		bool "Kernel low-level debugging messages via Sheipa UART"
+		depends on SHEIPA
+		select DEBUG_UART_8250
+
 	config DEBUG_BCM63XX_UART
 		bool "Kernel low-level debugging on BCM63XX UART"
 		depends on ARCH_BCM_63XX
@@ -1489,6 +1494,7 @@ config DEBUG_UART_8250
 
 config DEBUG_UART_PHYS
 	hex "Physical base address of debug UART"
+	default 0x1fb03000 if DEBUG_SHEIPA_UART
 	default 0x00100a00 if DEBUG_NETX_UART
 	default 0x01c20000 if DEBUG_DAVINCI_DMx_UART0
 	default 0x01c28000 if DEBUG_SUNXI_UART0
@@ -1625,6 +1631,7 @@ config DEBUG_UART_VIRT
 	default 0xc881f000 if DEBUG_RV1108_UART2
 	default 0xc8821000 if DEBUG_RV1108_UART1
 	default 0xc8912000 if DEBUG_RV1108_UART0
+	default 0xfee03000 if DEBUG_SHEIPA_UART
 	default 0xe0000a00 if DEBUG_NETX_UART
 	default 0xe0010fe0 if ARCH_RPC
 	default 0xf0000be0 if ARCH_EBSA110

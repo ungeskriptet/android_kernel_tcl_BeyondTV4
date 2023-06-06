@@ -749,3 +749,10 @@ config TCP_MD5SIG
 	  on the Internet.
 
 	  If unsure, say N.
+
+config TCP_COUNT
+	bool "TCP: Support tcp count(bytes)"
+	---help---
+	  Support tcp count(bytes).
+
+	  If unsure, say N.
